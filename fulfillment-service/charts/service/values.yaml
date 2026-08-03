@@ -183,3 +183,19 @@ idp:
   #
   # This parameter is mandatory.
   credentials:
+
+# Vault-compatible secret store configuration. When the endpoint is set, the service stores
+# Vault-backed secret data in the configured store. When empty, Vault integration is disabled.
+vault:
+
+  # Vault API endpoint URL (e.g., http://openbao.openbao.svc.cluster.local:8200).
+  endpoint: ""
+
+  # Parent namespace path within the Vault-compatible store.
+  namespace: osac
+
+  # KV v2 secret engine mount path within tenant namespaces.
+  kvMountPath: secret
+
+  # Vault authentication token. Used for development and testing only.
+  token: ""

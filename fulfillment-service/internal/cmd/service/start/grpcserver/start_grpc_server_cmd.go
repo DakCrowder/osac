@@ -54,6 +54,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/servers"
 	shtdwn "github.com/osac-project/fulfillment-service/internal/shutdown"
 	"github.com/osac-project/fulfillment-service/internal/validation"
+	"github.com/osac-project/fulfillment-service/internal/vault"
 )
 
 // userIDResolver implements auth.UserIDResolver by querying the users DAO.
@@ -182,6 +183,30 @@ func Cmd() *cobra.Command {
 		},
 		emergencyServiceAccountsFlagHelp,
 	)
+	flags.StringVar(
+		&runner.args.vaultEndpoint,
+		"vault-endpoint",
+		"",
+		vaultEndpointFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultNamespace,
+		"vault-namespace",
+		"osac",
+		vaultNamespaceFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultKVMountPath,
+		"vault-kv-mount-path",
+		"secret",
+		vaultKVMountPathFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultToken,
+		"vault-token",
+		"",
+		vaultTokenFlagHelp,
+	)
 	network.AddGrpcKeepaliveFlags(flags)
 	return command
 }
@@ -201,6 +226,10 @@ type runnerContext struct {
 		tokenEncryptionCrt       string
 		tokenIssuer              string
 		emergencyServiceAccounts []string
+		vaultEndpoint            string
+		vaultNamespace           string
+		vaultKVMountPath         string
+		vaultToken               string
 	}
 }
 
@@ -1070,15 +1099,44 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	}
 	privatev1.RegisterStorageBackendsServer(grpcServer, privateStorageBackendsServer)
 
+	// Create the vault secret store if configured:
+	var secretStore vault.SecretStore
+	if c.args.vaultEndpoint != "" {
+		c.logger.InfoContext(ctx, "Creating vault secret store",
+			slog.String("endpoint", c.args.vaultEndpoint),
+			slog.String("namespace", c.args.vaultNamespace),
+		)
+		if c.args.vaultToken == "" {
+			return fmt.Errorf(
+				"--vault-endpoint is set but no authentication configured (use --vault-token)",
+			)
+		}
+		vaultStore, vaultErr := vault.NewVaultSecretStore().
+			SetLogger(c.logger).
+			SetAddress(c.args.vaultEndpoint).
+			SetToken(c.args.vaultToken).
+			SetParentNamespace(c.args.vaultNamespace).
+			SetKVMountPath(c.args.vaultKVMountPath).
+			SetCaPool(caPool).
+			Build()
+		if vaultErr != nil {
+			return fmt.Errorf("failed to create vault secret store: %w", vaultErr)
+		}
+		secretStore = vaultStore
+	}
+
 	// Create the private secrets server:
 	c.logger.InfoContext(ctx, "Creating private secrets server")
-	privateSecretsServer, err := servers.NewPrivateSecretsServer().
+	secretsBuilder := servers.NewPrivateSecretsServer().
 		SetLogger(c.logger).
 		SetNotifier(notifier).
 		SetAttributionLogic(privateAttributionLogic).
 		SetTenancyLogic(tenancyLogic).
-		SetMetricsRegisterer(metricsRegisterer).
-		Build()
+		SetMetricsRegisterer(metricsRegisterer)
+	if secretStore != nil {
+		secretsBuilder = secretsBuilder.SetSecretStore(secretStore)
+	}
+	privateSecretsServer, err := secretsBuilder.Build()
 	if err != nil {
 		return fmt.Errorf("failed to create private secrets server: %w", err)
 	}
@@ -1674,4 +1732,25 @@ const emergencyServiceAccountsFlagHelp = `
 _NAMES_ - Comma-separated list of Kubernetes service account names that are allowed to access the private API with
 administrator permissions. These are intended only for emergency situations, for example when the regular authentication
 mechanisms are not working. The service accounts are expected to be in the namespace where the service is deployed.
+`
+
+const vaultEndpointFlagHelp = `
+_URL_ - Vault API endpoint URL. When set, the service stores
+Vault-backed secret data in the configured Vault-compatible store
+(e.g., OpenBao or HashiCorp Vault). When empty, Vault integration
+is disabled and secret data remains in PostgreSQL.
+`
+
+const vaultNamespaceFlagHelp = `
+_NAMESPACE_ - Parent namespace path within the Vault-compatible
+store. Tenant namespaces are created as children of this namespace.
+`
+
+const vaultKVMountPathFlagHelp = `
+_PATH_ - KV v2 secret engine mount path within tenant namespaces.
+`
+
+const vaultTokenFlagHelp = `
+_TOKEN_ - Vault authentication token. Used for development and
+testing. Production deployments should use JWT-based authentication.
 `

@@ -367,6 +367,18 @@ func (t *Tool) Setup(ctx context.Context) error {
 		return err
 	}
 
+	// Install OpenBao:
+	err = t.deployOpenBao(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Configure OpenBao (create parent namespace):
+	err = t.configureOpenBao(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Create the service database resources:
 	err = t.createServiceDatabaseResources(ctx)
 	if err != nil {
@@ -1375,6 +1387,174 @@ func (t *Tool) deployPostgres(ctx context.Context) error {
 	return nil
 }
 
+// deployOpenBao installs the OpenBao chart in dev mode as a Vault-compatible secret store.
+func (t *Tool) deployOpenBao(ctx context.Context) error {
+	t.logger.DebugContext(ctx, "Installing OpenBao chart")
+
+	valuesData := map[string]any{
+		"dev": map[string]any{
+			"rootToken":     t.secret,
+			"listenAddress": "0.0.0.0:8200",
+		},
+		"caBundle": map[string]any{
+			"configMap": "ca-bundle",
+		},
+	}
+	valuesBytes, err := yaml.Marshal(valuesData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal OpenBao values to YAML: %w", err)
+	}
+
+	valuesFile := filepath.Join(t.tmpDir, "openbao-values.yaml")
+	err = os.WriteFile(valuesFile, valuesBytes, 0400)
+	if err != nil {
+		return fmt.Errorf("failed to write OpenBao values to file: %w", err)
+	}
+
+	installCmd, err := testing.NewCommand().
+		SetLogger(t.logger).
+		SetHome(t.projectDir).
+		SetDir(t.projectDir).
+		SetName(helmCmd).
+		SetArgs(
+			"upgrade",
+			"--install",
+			"openbao",
+			"it/charts/openbao",
+			"--kubeconfig", t.kcFile,
+			"--namespace", "openbao",
+			"--create-namespace",
+			"--values", valuesFile,
+			"--wait",
+		).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create OpenBao install command: %w", err)
+	}
+	if err = installCmd.Execute(ctx); err != nil {
+		return fmt.Errorf("failed to install OpenBao: %w", err)
+	}
+	return nil
+}
+
+// configureOpenBao sets up the parent namespace in the OpenBao secret store. It uses kubectl port-forward to reach
+// the OpenBao API from the host, since OpenBao runs on HTTP and cannot be routed through the Envoy Gateway TLS
+// passthrough.
+func (t *Tool) configureOpenBao(ctx context.Context) error {
+	t.logger.DebugContext(ctx, "Configuring OpenBao")
+
+	// Start kubectl port-forward as a background process:
+	portForwardCmd := exec.CommandContext(ctx,
+		kubectlCmd,
+		"port-forward",
+		"svc/openbao",
+		"8200:8200",
+		"--namespace", "openbao",
+		"--kubeconfig", t.kcFile,
+	)
+	portForwardCmd.Dir = t.projectDir
+	if err := portForwardCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start port-forward to OpenBao: %w", err)
+	}
+	defer func() {
+		_ = portForwardCmd.Process.Kill()
+		_ = portForwardCmd.Wait()
+	}()
+
+	// Wait for the forwarded port to be reachable:
+	openbaoURL := "http://localhost:8200"
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	err := backoff.Retry(func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, openbaoURL+"/v1/sys/health", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		return nil
+	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(time.Second), 30), ctx))
+	if err != nil {
+		return fmt.Errorf("OpenBao port-forward did not become reachable: %w", err)
+	}
+
+	// Helper to make Vault API calls with the root token. Tolerates HTTP 400 (already exists) to
+	// allow idempotent re-runs when the kind cluster is preserved between test invocations.
+	vaultRequest := func(method, path, namespace string, body io.Reader) error {
+		req, reqErr := http.NewRequestWithContext(ctx, method, openbaoURL+path, body)
+		if reqErr != nil {
+			return fmt.Errorf("failed to create request for %s: %w", path, reqErr)
+		}
+		req.Header.Set("X-Vault-Token", t.secret)
+		if namespace != "" {
+			req.Header.Set("X-Vault-Namespace", namespace)
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, doErr := httpClient.Do(req)
+		if doErr != nil {
+			return fmt.Errorf("request to %s failed: %w", path, doErr)
+		}
+		resp.Body.Close()
+		switch resp.StatusCode {
+		case http.StatusOK, http.StatusNoContent:
+			return nil
+		case http.StatusBadRequest:
+			t.logger.DebugContext(ctx, "Vault resource already exists, skipping",
+				slog.String("path", path),
+				slog.String("namespace", namespace),
+			)
+			return nil
+		default:
+			return fmt.Errorf("request to %s returned HTTP %d", path, resp.StatusCode)
+		}
+	}
+
+	// Create the parent namespace "osac/":
+	if err = vaultRequest(http.MethodPost, "/v1/sys/namespaces/osac", "", nil); err != nil {
+		return fmt.Errorf("failed to create osac namespace: %w", err)
+	}
+
+	// Create tenant child namespaces with KV v2 enabled:
+	tenants := []string{"system", usersGroup}
+	for _, saUser := range ServiceAccountTenants {
+		tenants = append(tenants, saUser)
+	}
+	for _, oidcTenants := range OIDCTenants {
+		tenants = append(tenants, oidcTenants...)
+	}
+	seen := make(map[string]bool)
+	for _, tenant := range tenants {
+		if seen[tenant] {
+			continue
+		}
+		seen[tenant] = true
+
+		// Create the tenant namespace under osac/:
+		nsPath := fmt.Sprintf("/v1/sys/namespaces/%s", tenant)
+		if err = vaultRequest(http.MethodPost, nsPath, "osac", nil); err != nil {
+			return fmt.Errorf("failed to create tenant namespace %q: %w", tenant, err)
+		}
+
+		// Enable KV v2 at "secret/" within the tenant namespace:
+		tenantNS := fmt.Sprintf("osac/%s", tenant)
+		kvBody := strings.NewReader(`{"type": "kv", "options": {"version": "2"}}`)
+		if err = vaultRequest(http.MethodPost, "/v1/sys/mounts/secret", tenantNS, kvBody); err != nil {
+			return fmt.Errorf("failed to enable KV v2 for tenant %q: %w", tenant, err)
+		}
+
+		t.logger.DebugContext(ctx, "Created tenant vault namespace",
+			slog.String("tenant", tenant),
+		)
+	}
+
+	t.logger.InfoContext(ctx, "Configured OpenBao with parent and tenant namespaces")
+	return nil
+}
+
 func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 	// Prepare the values:
 	externalHostname, _, err := net.SplitHostPort(externalServiceAddr)
@@ -1485,6 +1665,12 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 					},
 				},
 			},
+		},
+		"vault": map[string]any{
+			"endpoint":    fmt.Sprintf("http://%s", openbaoAddr),
+			"namespace":   "osac",
+			"kvMountPath": "secret",
+			"token":       t.secret,
 		},
 	}
 	valuesBytes, err := yaml.Marshal(valuesData)
@@ -2496,6 +2682,7 @@ const (
 	keycloakAddr        = "keycloak.keycloak.svc.cluster.local:8000"
 	externalServiceAddr = "fulfillment-api.osac.svc.cluster.local:8000"
 	internalServiceAddr = "fulfillment-internal-api.osac.svc.cluster.local:8000"
+	openbaoAddr         = "openbao.openbao.svc.cluster.local:8200"
 )
 
 // Names of the database-related Kubernetes resources.
