@@ -40,9 +40,11 @@ type SecretStore interface {
 type VaultSecretStoreBuilder struct {
 	logger          *slog.Logger
 	address         string
-	token           string
 	parentNamespace string
 	kvMountPath     string
+	authMountPath   string
+	authRole        string
+	authSource      RequestAuthSource
 	caPool          *x509.CertPool
 }
 
@@ -51,11 +53,17 @@ type VaultSecretStore struct {
 	client          *vaultapi.Client
 	parentNamespace string
 	kvMountPath     string
+	authMountPath   string
+	authRole        string
+	authSource      RequestAuthSource
+	tokenCache      *TokenCache
 }
 
 func NewVaultSecretStore() *VaultSecretStoreBuilder {
 	return &VaultSecretStoreBuilder{
-		kvMountPath: "secret",
+		kvMountPath:   "secret",
+		authMountPath: "jwt",
+		authRole:      "default",
 	}
 }
 
@@ -69,11 +77,6 @@ func (b *VaultSecretStoreBuilder) SetAddress(value string) *VaultSecretStoreBuil
 	return b
 }
 
-func (b *VaultSecretStoreBuilder) SetToken(value string) *VaultSecretStoreBuilder {
-	b.token = value
-	return b
-}
-
 func (b *VaultSecretStoreBuilder) SetParentNamespace(value string) *VaultSecretStoreBuilder {
 	b.parentNamespace = value
 	return b
@@ -81,6 +84,21 @@ func (b *VaultSecretStoreBuilder) SetParentNamespace(value string) *VaultSecretS
 
 func (b *VaultSecretStoreBuilder) SetKVMountPath(value string) *VaultSecretStoreBuilder {
 	b.kvMountPath = value
+	return b
+}
+
+func (b *VaultSecretStoreBuilder) SetAuthMountPath(value string) *VaultSecretStoreBuilder {
+	b.authMountPath = value
+	return b
+}
+
+func (b *VaultSecretStoreBuilder) SetAuthRole(value string) *VaultSecretStoreBuilder {
+	b.authRole = value
+	return b
+}
+
+func (b *VaultSecretStoreBuilder) SetAuthSource(value RequestAuthSource) *VaultSecretStoreBuilder {
+	b.authSource = value
 	return b
 }
 
@@ -98,8 +116,8 @@ func (b *VaultSecretStoreBuilder) Build() (result *VaultSecretStore, err error) 
 		err = errors.New("address is mandatory")
 		return
 	}
-	if b.token == "" {
-		err = errors.New("token is mandatory")
+	if b.authSource == nil {
+		err = errors.New("auth source is mandatory")
 		return
 	}
 	if b.parentNamespace == "" {
@@ -126,14 +144,16 @@ func (b *VaultSecretStoreBuilder) Build() (result *VaultSecretStore, err error) 
 		err = fmt.Errorf("failed to create vault client: %w", err)
 		return
 	}
-	client.SetToken(b.token)
-	client.SetCloneToken(true)
 
 	result = &VaultSecretStore{
 		logger:          b.logger,
 		client:          client,
 		parentNamespace: b.parentNamespace,
 		kvMountPath:     b.kvMountPath,
+		authMountPath:   b.authMountPath,
+		authRole:        b.authRole,
+		authSource:      b.authSource,
+		tokenCache:      NewTokenCache(),
 	}
 	return
 }
@@ -152,7 +172,7 @@ func (s *VaultSecretStore) Store(ctx context.Context, tenant, project, name stri
 		return err
 	}
 
-	client, err := s.tenantClient(tenant)
+	client, err := s.authenticatedTenantClient(ctx, tenant)
 	if err != nil {
 		return err
 	}
@@ -190,7 +210,7 @@ func (s *VaultSecretStore) Fetch(ctx context.Context, tenant, project, name stri
 		return nil, err
 	}
 
-	client, err := s.tenantClient(tenant)
+	client, err := s.authenticatedTenantClient(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +255,7 @@ func (s *VaultSecretStore) Delete(ctx context.Context, tenant, project, name str
 		return err
 	}
 
-	client, err := s.tenantClient(tenant)
+	client, err := s.authenticatedTenantClient(ctx, tenant)
 	if err != nil {
 		return err
 	}
@@ -254,12 +274,39 @@ func (s *VaultSecretStore) Delete(ctx context.Context, tenant, project, name str
 	return nil
 }
 
-func (s *VaultSecretStore) tenantClient(tenant string) (*vaultapi.Client, error) {
+// authenticatedTenantClient returns a Vault client authenticated to the given tenant's namespace
+// via JWT auth. It checks the token cache first and falls back to a fresh JWT login.
+func (s *VaultSecretStore) authenticatedTenantClient(ctx context.Context, tenant string) (
+	*vaultapi.Client, error) {
+	reqAuth, err := s.authSource(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get request auth for vault: %w", err)
+	}
+
+	cacheKey := reqAuth.JTI + ":" + tenant
+	if token, ok := s.tokenCache.Get(cacheKey); ok {
+		client, cloneErr := s.client.Clone()
+		if cloneErr != nil {
+			return nil, fmt.Errorf("failed to clone vault client: %w", cloneErr)
+		}
+		client.SetNamespace(path.Join(s.parentNamespace, tenant))
+		client.SetToken(token)
+		return client, nil
+	}
+
 	client, err := s.client.Clone()
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone vault client: %w", err)
 	}
 	client.SetNamespace(path.Join(s.parentNamespace, tenant))
+
+	loginResult, err := jwtLogin(ctx, client, s.authMountPath, s.authRole, reqAuth.RawJWT)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate to vault for tenant %q: %w", tenant, err)
+	}
+
+	s.tokenCache.Put(cacheKey, loginResult.Token, loginResult.TTL)
+	client.SetToken(loginResult.Token)
 	return client, nil
 }
 

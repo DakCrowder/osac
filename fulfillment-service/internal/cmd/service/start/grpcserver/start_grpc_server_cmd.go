@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -202,10 +203,46 @@ func Cmd() *cobra.Command {
 		vaultKVMountPathFlagHelp,
 	)
 	flags.StringVar(
-		&runner.args.vaultToken,
-		"vault-token",
+		&runner.args.vaultKeycloakDiscoveryURL,
+		"vault-keycloak-discovery-url",
 		"",
-		vaultTokenFlagHelp,
+		vaultKeycloakDiscoveryURLFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultKeycloakAudience,
+		"vault-keycloak-audience",
+		"osac-api",
+		vaultKeycloakAudienceFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultKeycloakTokenEndpoint,
+		"vault-keycloak-token-endpoint",
+		"",
+		vaultKeycloakTokenEndpointFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultKeycloakClientID,
+		"vault-keycloak-client-id",
+		"",
+		vaultKeycloakClientIDFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultKeycloakClientSecretFile,
+		"vault-keycloak-client-secret-file",
+		"",
+		vaultKeycloakClientSecretFileFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultLifecycleRole,
+		"vault-lifecycle-role",
+		"lifecycle",
+		vaultLifecycleRoleFlagHelp,
+	)
+	flags.StringVar(
+		&runner.args.vaultLifecycleMountPath,
+		"vault-lifecycle-mount-path",
+		"jwt",
+		vaultLifecycleMountPathFlagHelp,
 	)
 	network.AddGrpcKeepaliveFlags(flags)
 	return command
@@ -226,10 +263,16 @@ type runnerContext struct {
 		tokenEncryptionCrt       string
 		tokenIssuer              string
 		emergencyServiceAccounts []string
-		vaultEndpoint            string
-		vaultNamespace           string
-		vaultKVMountPath         string
-		vaultToken               string
+		vaultEndpoint                string
+		vaultNamespace               string
+		vaultKVMountPath             string
+		vaultKeycloakDiscoveryURL    string
+		vaultKeycloakAudience        string
+		vaultKeycloakTokenEndpoint   string
+		vaultKeycloakClientID        string
+		vaultKeycloakClientSecretFile string
+		vaultLifecycleRole           string
+		vaultLifecycleMountPath      string
 	}
 }
 
@@ -1106,17 +1149,32 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 			slog.String("endpoint", c.args.vaultEndpoint),
 			slog.String("namespace", c.args.vaultNamespace),
 		)
-		if c.args.vaultToken == "" {
+		if c.args.vaultKeycloakDiscoveryURL == "" {
 			return fmt.Errorf(
-				"--vault-endpoint is set but no authentication configured (use --vault-token)",
+				"--vault-endpoint is set but --vault-keycloak-discovery-url is not configured",
 			)
+		}
+		authSource := func(reqCtx context.Context) (*vault.RequestAuth, error) {
+			token := auth.TokenFromContext(reqCtx)
+			if token == nil {
+				return nil, fmt.Errorf("no JWT token in request context for vault auth")
+			}
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				return nil, fmt.Errorf("unexpected JWT claims type for vault auth")
+			}
+			jti, _ := claims["jti"].(string)
+			return &vault.RequestAuth{
+				RawJWT: token.Raw,
+				JTI:    jti,
+			}, nil
 		}
 		vaultStore, vaultErr := vault.NewVaultSecretStore().
 			SetLogger(c.logger).
 			SetAddress(c.args.vaultEndpoint).
-			SetToken(c.args.vaultToken).
 			SetParentNamespace(c.args.vaultNamespace).
 			SetKVMountPath(c.args.vaultKVMountPath).
+			SetAuthSource(authSource).
 			SetCaPool(caPool).
 			Build()
 		if vaultErr != nil {
@@ -1750,7 +1808,37 @@ const vaultKVMountPathFlagHelp = `
 _PATH_ - KV v2 secret engine mount path within tenant namespaces.
 `
 
-const vaultTokenFlagHelp = `
-_TOKEN_ - Vault authentication token. Used for development and
-testing. Production deployments should use JWT-based authentication.
+const vaultKeycloakDiscoveryURLFlagHelp = `
+_URL_ - Keycloak OIDC discovery URL used when configuring JWT auth
+in tenant Vault namespaces. Required when --vault-endpoint is set.
+`
+
+const vaultKeycloakAudienceFlagHelp = `
+_AUDIENCE_ - Expected audience claim in Keycloak JWTs. Must match
+the bound_audiences configured on Vault JWT auth roles.
+`
+
+const vaultKeycloakTokenEndpointFlagHelp = `
+_URL_ - Keycloak token endpoint for controller SA-to-JWT exchange.
+Used when controllers authenticated via Kubernetes service account
+tokens need Vault access.
+`
+
+const vaultKeycloakClientIDFlagHelp = `
+_ID_ - Keycloak client ID for controller token exchange.
+`
+
+const vaultKeycloakClientSecretFileFlagHelp = `
+_FILE_ - Path to file containing the Keycloak client secret for
+controller token exchange.
+`
+
+const vaultLifecycleRoleFlagHelp = `
+_ROLE_ - Vault role name for lifecycle auth in the parent namespace.
+Used for tenant namespace creation and deletion.
+`
+
+const vaultLifecycleMountPathFlagHelp = `
+_PATH_ - JWT auth mount path in the parent Vault namespace for
+lifecycle operations.
 `

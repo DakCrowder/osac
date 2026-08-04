@@ -184,8 +184,9 @@ idp:
   # This parameter is mandatory.
   credentials:
 
-# Vault-compatible secret store configuration. When the endpoint is set, the service stores
-# Vault-backed secret data in the configured store. When empty, Vault integration is disabled.
+# Vault-compatible secret store configuration (IT/dev only — production chart tracked separately).
+# When the endpoint is set, the service stores Vault-backed secret data in the configured store.
+# When empty, Vault integration is disabled.
 vault:
 
   # Vault API endpoint URL (e.g., http://openbao.openbao.svc.cluster.local:8200).
@@ -197,5 +198,29 @@ vault:
   # KV v2 secret engine mount path within tenant namespaces.
   kvMountPath: secret
 
-  # Vault authentication token. Used for development and testing only.
-  token: ""
+  # Keycloak integration for JWT-based Vault authentication.
+  keycloak:
+
+    # OIDC discovery URL used when configuring tenant namespace JWT auth in Vault.
+    discoveryUrl: ""
+
+    # Expected audience claim in Keycloak JWTs (must match Vault role bound_audiences).
+    audience: "osac-api"
+
+    # Keycloak token endpoint for controller SA-to-JWT exchange.
+    tokenEndpoint: ""
+
+    # Client ID for controller token exchange.
+    clientId: ""
+
+    # Path to file containing the client secret for controller token exchange.
+    clientSecretFile: ""
+
+  # Lifecycle auth configuration for parent namespace operations (tenant onboarding/offboarding).
+  lifecycle:
+
+    # Vault role name for lifecycle auth in the parent namespace.
+    role: ""
+
+    # Auth mount path in the parent namespace.
+    mountPath: "auth/jwt"

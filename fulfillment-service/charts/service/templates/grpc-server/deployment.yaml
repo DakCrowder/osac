@@ -135,7 +135,21 @@ spec:
         - --vault-endpoint={{ .Values.vault.endpoint }}
         - --vault-namespace={{ .Values.vault.namespace }}
         - --vault-kv-mount-path={{ .Values.vault.kvMountPath }}
-        - --vault-token={{ .Values.vault.token }}
+        - --vault-keycloak-discovery-url={{ .Values.vault.keycloak.discoveryUrl }}
+        - --vault-keycloak-audience={{ .Values.vault.keycloak.audience }}
+        {{ with .Values.vault.keycloak.tokenEndpoint }}
+        - --vault-keycloak-token-endpoint={{ . }}
+        {{ end }}
+        {{ with .Values.vault.keycloak.clientId }}
+        - --vault-keycloak-client-id={{ . }}
+        {{ end }}
+        {{ with .Values.vault.keycloak.clientSecretFile }}
+        - --vault-keycloak-client-secret-file={{ . }}
+        {{ end }}
+        {{ with .Values.vault.lifecycle.role }}
+        - --vault-lifecycle-role={{ . }}
+        {{ end }}
+        - --vault-lifecycle-mount-path={{ .Values.vault.lifecycle.mountPath }}
         {{ end }}
         ports:
         - name: grpc
