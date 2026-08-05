@@ -41,13 +41,15 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/idp"
 	"github.com/osac-project/osac/fulfillment-service/internal/masks"
+	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 )
 
 // FunctionBuilder contains the data needed to build instances of the reconciler function.
 type FunctionBuilder struct {
-	logger     *slog.Logger
-	connection *grpc.ClientConn
-	idpManager *idp.TenantManager
+	logger         *slog.Logger
+	connection     *grpc.ClientConn
+	idpManager     *idp.TenantManager
+	vaultLifecycle vault.LifecycleClient
 }
 
 // NewFunction creates a builder that can be used to configure and create reconciler functions.
@@ -70,6 +72,13 @@ func (b *FunctionBuilder) SetConnection(value *grpc.ClientConn) *FunctionBuilder
 // SetIdpManager sets the IDP manager that the reconciler will use to manage tenants in the identity provider.
 func (b *FunctionBuilder) SetIdpManager(value *idp.TenantManager) *FunctionBuilder {
 	b.idpManager = value
+	return b
+}
+
+// SetVaultLifecycle sets the vault lifecycle client that the reconciler will use to manage tenant namespaces
+// in the secret store. When nil, vault namespace provisioning is skipped.
+func (b *FunctionBuilder) SetVaultLifecycle(value vault.LifecycleClient) *FunctionBuilder {
+	b.vaultLifecycle = value
 	return b
 }
 
@@ -100,6 +109,7 @@ func (b *FunctionBuilder) Build() (result *function, err error) {
 		externalIPPoolsClient: privatev1.NewExternalIPPoolsClient(b.connection),
 		externalIPsClient:     privatev1.NewExternalIPsClient(b.connection),
 		idpManager:            b.idpManager,
+		vaultLifecycle:        b.vaultLifecycle,
 		maskCalculator:        masks.NewCalculator().Build(),
 	}
 	return
@@ -118,6 +128,7 @@ type function struct {
 	externalIPPoolsClient privatev1.ExternalIPPoolsClient
 	externalIPsClient     privatev1.ExternalIPsClient
 	idpManager            *idp.TenantManager
+	vaultLifecycle        vault.LifecycleClient
 	maskCalculator        *masks.Calculator
 }
 
@@ -179,7 +190,7 @@ func (t *task) update(ctx context.Context) error {
 		return nil
 	}
 
-	// For synced tenants, update IDP and check default networking readiness.
+	// For synced tenants, update IDP, ensure vault namespace, and check default networking readiness.
 	if state == privatev1.TenantState_TENANT_STATE_SYNCED {
 		if err := t.updateIDP(ctx); err != nil {
 			return err
@@ -187,6 +198,7 @@ func (t *task) update(ctx context.Context) error {
 		if t.tenant.GetStatus().GetState() == privatev1.TenantState_TENANT_STATE_FAILED {
 			return nil
 		}
+		t.ensureVaultNamespace(ctx)
 		return t.checkDefaultNetworkingReadiness(ctx)
 	}
 
@@ -228,6 +240,8 @@ func (t *task) syncToIDP(ctx context.Context) error {
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),
 	)
+
+	t.ensureVaultNamespace(ctx)
 
 	return nil
 }
@@ -421,6 +435,34 @@ func (t *task) updateCondition(conditionType privatev1.TenantConditionType, stat
 		LastTransitionTime: timestamppb.Now(),
 	}.Build())
 	t.tenant.GetStatus().SetConditions(conditions)
+}
+
+// ensureVaultNamespace creates the tenant's namespace in the secret store if not already provisioned.
+// This is a best-effort operation — errors are logged but do not block tenant reconciliation.
+func (t *task) ensureVaultNamespace(ctx context.Context) {
+	if t.r.vaultLifecycle == nil {
+		return
+	}
+	if t.tenant.GetStatus().GetVaultNamespace() != "" {
+		return
+	}
+
+	tenantName := t.tenant.GetMetadata().GetName()
+	err := t.r.vaultLifecycle.EnsureTenantNamespace(ctx, tenantName)
+	if err != nil {
+		t.r.logger.ErrorContext(ctx, "Failed to provision vault namespace for tenant",
+			slog.String("tenant_id", t.tenant.GetId()),
+			slog.String("tenant_name", tenantName),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	t.tenant.GetStatus().SetVaultNamespace(tenantName)
+	t.r.logger.DebugContext(ctx, "Vault namespace provisioned for tenant",
+		slog.String("tenant_id", t.tenant.GetId()),
+		slog.String("tenant_name", tenantName),
+	)
 }
 
 const (

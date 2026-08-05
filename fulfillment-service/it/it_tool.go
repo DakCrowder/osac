@@ -421,6 +421,12 @@ func (t *Tool) Setup(ctx context.Context) error {
 		return err
 	}
 
+	// Wait for vault namespaces to be provisioned by the controller:
+	err = t.waitForVaultNamespaces(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Add users to Keycloak Organizations:
 	err = t.addUsersToKeycloakOrganizations(ctx)
 	if err != nil {
@@ -1447,128 +1453,40 @@ func (t *Tool) deployOpenBao(ctx context.Context) error {
 	return nil
 }
 
-// configureOpenBao sets up the parent namespace in the OpenBao secret store. It uses kubectl port-forward to reach
-// the OpenBao API from the host, since OpenBao runs on HTTP and cannot be routed through the Envoy Gateway TLS
-// passthrough.
+// configureOpenBao sets up the parent namespace in the OpenBao secret store using kubectl exec to run the bao CLI
+// inside the pod.
 func (t *Tool) configureOpenBao(ctx context.Context) error {
 	t.logger.DebugContext(ctx, "Configuring OpenBao")
 
-	// Start kubectl port-forward as a background process:
-	portForwardCmd := exec.CommandContext(ctx,
-		kubectlCmd,
-		"port-forward",
-		"svc/openbao",
-		"8200:8200",
-		"--namespace", "openbao",
-		"--kubeconfig", t.kcFile,
-	)
-	portForwardCmd.Dir = t.projectDir
-	if err := portForwardCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start port-forward to OpenBao: %w", err)
-	}
-	defer func() {
-		_ = portForwardCmd.Process.Kill()
-		_ = portForwardCmd.Wait()
-	}()
-
-	// Wait for the forwarded port to be reachable:
-	openbaoURL := "http://localhost:8200"
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	err := backoff.Retry(func() error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, openbaoURL+"/v1/sys/health", nil)
-		if err != nil {
-			return err
-		}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return err
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("OpenBao not ready (HTTP %d)", resp.StatusCode)
-		}
-		return nil
-	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(time.Second), 30), ctx))
+	cmd, err := testing.NewCommand().
+		SetLogger(t.logger).
+		SetHome(t.projectDir).
+		SetDir(t.projectDir).
+		SetName(kubectlCmd).
+		SetArgs(
+			"exec", "openbao",
+			"--namespace", "openbao",
+			"--kubeconfig", t.kcFile,
+			"--",
+			"env",
+			"BAO_ADDR=http://127.0.0.1:8200",
+			fmt.Sprintf("BAO_TOKEN=%s", t.secret),
+			"bao", "namespace", "create", "osac",
+		).
+		Build()
 	if err != nil {
-		return fmt.Errorf("OpenBao port-forward did not become reachable: %w", err)
+		return fmt.Errorf("failed to create command to configure OpenBao: %w", err)
 	}
-
-	// Helper to make Vault API calls with the root token. Tolerates HTTP 400 (already exists) to
-	// allow idempotent re-runs when the kind cluster is preserved between test invocations.
-	vaultRequest := func(method, path, namespace string, body io.Reader) error {
-		req, reqErr := http.NewRequestWithContext(ctx, method, openbaoURL+path, body)
-		if reqErr != nil {
-			return fmt.Errorf("failed to create request for %s: %w", path, reqErr)
-		}
-		req.Header.Set("X-Vault-Token", t.secret)
-		if namespace != "" {
-			req.Header.Set("X-Vault-Namespace", namespace)
-		}
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		resp, doErr := httpClient.Do(req)
-		if doErr != nil {
-			return fmt.Errorf("request to %s failed: %w", path, doErr)
-		}
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
-		switch {
-		case resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent:
-			return nil
-		case resp.StatusCode == http.StatusBadRequest &&
-			(strings.Contains(string(respBody), "already exists") ||
-				strings.Contains(string(respBody), "existing mount")):
-			t.logger.DebugContext(ctx, "Vault resource already exists, skipping",
-				slog.String("path", path),
-				slog.String("namespace", namespace),
-			)
-			return nil
-		default:
-			return fmt.Errorf("request to %s returned HTTP %d: %s", path, resp.StatusCode, respBody)
+	stdout, _, err := cmd.Evaluate(ctx)
+	if err != nil {
+		if strings.Contains(string(stdout), "already exists") {
+			t.logger.DebugContext(ctx, "OpenBao osac namespace already exists")
+		} else {
+			return fmt.Errorf("failed to create osac namespace in OpenBao: %w", err)
 		}
 	}
 
-	// Create the parent namespace "osac/":
-	if err = vaultRequest(http.MethodPost, "/v1/sys/namespaces/osac", "", nil); err != nil {
-		return fmt.Errorf("failed to create osac namespace: %w", err)
-	}
-
-	// Create tenant child namespaces with KV v2 enabled:
-	tenants := []string{"system", usersGroup}
-	for _, saUser := range ServiceAccountTenants {
-		tenants = append(tenants, saUser)
-	}
-	for _, oidcTenants := range OIDCTenants {
-		tenants = append(tenants, oidcTenants...)
-	}
-	seen := make(map[string]bool)
-	for _, tenant := range tenants {
-		if seen[tenant] {
-			continue
-		}
-		seen[tenant] = true
-
-		// Create the tenant namespace under osac/:
-		nsPath := fmt.Sprintf("/v1/sys/namespaces/%s", tenant)
-		if err = vaultRequest(http.MethodPost, nsPath, "osac", nil); err != nil {
-			return fmt.Errorf("failed to create tenant namespace %q: %w", tenant, err)
-		}
-
-		// Enable KV v2 at "secret/" within the tenant namespace:
-		tenantNS := fmt.Sprintf("osac/%s", tenant)
-		kvBody := strings.NewReader(`{"type": "kv", "options": {"version": "2"}}`)
-		if err = vaultRequest(http.MethodPost, "/v1/sys/mounts/secret", tenantNS, kvBody); err != nil {
-			return fmt.Errorf("failed to enable KV v2 for tenant %q: %w", tenant, err)
-		}
-
-		t.logger.DebugContext(ctx, "Created tenant vault namespace",
-			slog.String("tenant", tenant),
-		)
-	}
-
-	t.logger.InfoContext(ctx, "Configured OpenBao with parent and tenant namespaces")
+	t.logger.InfoContext(ctx, "Configured OpenBao with parent namespace")
 	return nil
 }
 
@@ -1684,9 +1602,25 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 			},
 		},
 		"vault": map[string]any{
-			"endpoint":    fmt.Sprintf("http://%s", openbaoAddr),
-			"namespace":   "osac",
-			"kvMountPath": "secret",
+			"endpoint":              fmt.Sprintf("http://%s", openbaoAddr),
+			"namespace":             "osac",
+			"kvMountPath":           "secret",
+			"lifecycleRole":         "lifecycle",
+			"lifecycleMountPath":    "jwt",
+			"keycloakTokenEndpoint": fmt.Sprintf("https://%s/realms/osac/protocol/openid-connect/token", keycloakAddr),
+			"keycloakClientId":      "osac-controller",
+			"keycloakDiscoveryUrl":  fmt.Sprintf("https://%s/realms/osac/.well-known/openid-configuration", keycloakAddr),
+			"keycloakAudience":      "osac-api",
+			"credentials": []map[string]any{
+				{
+					"secret": map[string]any{
+						"name": "fulfillment-controller-credentials",
+						"items": []map[string]string{
+							{"key": "client-secret", "param": "client-secret"},
+						},
+					},
+				},
+			},
 		},
 	}
 	valuesBytes, err := yaml.Marshal(valuesData)
@@ -1850,6 +1784,51 @@ func (t *Tool) createTenants(ctx context.Context) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// waitForVaultNamespaces waits for all test tenants to have their vault namespaces provisioned by the controller.
+func (t *Tool) waitForVaultNamespaces(ctx context.Context) error {
+	t.logger.InfoContext(ctx, "Waiting for vault namespaces to be provisioned")
+
+	uniqueTenants := make(map[string]bool)
+	uniqueTenants[usersGroup] = true
+	for _, tenants := range OIDCTenants {
+		for _, tenant := range tenants {
+			uniqueTenants[tenant] = true
+		}
+	}
+
+	tenantsClient := privatev1.NewTenantsClient(t.internalView.adminConn)
+	for tenant := range uniqueTenants {
+		backOff := backoff.NewExponentialBackOff()
+		backOff.InitialInterval = 1 * time.Second
+		backOff.MaxInterval = 5 * time.Second
+		backOff.MaxElapsedTime = 60 * time.Second
+		tenantName := tenant
+		err := backoff.Retry(func() error {
+			filter := fmt.Sprintf("this.metadata.name == %q", tenantName)
+			resp, listErr := tenantsClient.List(ctx, privatev1.TenantsListRequest_builder{
+				Filter: &filter,
+			}.Build())
+			if listErr != nil {
+				return fmt.Errorf("failed to list tenant %q: %w", tenantName, listErr)
+			}
+			if len(resp.GetItems()) == 0 {
+				return fmt.Errorf("tenant %q not found", tenantName)
+			}
+			if resp.GetItems()[0].GetStatus().GetVaultNamespace() == "" {
+				return fmt.Errorf("tenant %q vault namespace not yet provisioned", tenantName)
+			}
+			return nil
+		}, backoff.WithContext(backOff, ctx))
+		if err != nil {
+			return fmt.Errorf("timed out waiting for vault namespace for tenant %q: %w", tenant, err)
+		}
+		t.logger.DebugContext(ctx, "Vault namespace ready for tenant", slog.String("tenant", tenant))
+	}
+
+	t.logger.InfoContext(ctx, "All vault namespaces provisioned")
 	return nil
 }
 

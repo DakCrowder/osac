@@ -28,6 +28,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/idp"
+	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 )
 
 var _ = Describe("Tenant Validation", func() {
@@ -1244,6 +1245,20 @@ var _ = Describe("Default networking readiness", func() {
 		Expect(cond.GetReason()).To(Equal("ResourceFailed"))
 	})
 
+	It("skips DefaultNetworkingReady check when VN client is nil", func() {
+		nilVNReconciler := &function{
+			logger:     logger,
+			idpManager: reconciler.idpManager,
+		}
+
+		tenant := newSyncedTenant("nil-vn-client")
+		t := &task{r: nilVNReconciler, tenant: tenant}
+		t.setDefaults()
+		t.setConditionDefaults()
+		err := t.checkDefaultNetworkingReadiness(ctx)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("initializes DefaultNetworkingReady condition as FALSE for deleted tenant", func() {
 		tenant := privatev1.Tenant_builder{
 			Id: "deleting-tenant",
@@ -1687,5 +1702,235 @@ var _ = Describe("Default networking provisioning", func() {
 		t.setConditionDefaults()
 		err := t.checkDefaultNetworkingReadiness(ctx)
 		Expect(err).ToNot(HaveOccurred())
+	})
+})
+
+var _ = Describe("Vault namespace provisioning", func() {
+	var (
+		ctx             context.Context
+		ctrl            *gomock.Controller
+		mockIDPClient   *idp.MockClientInterface
+		mockVaultClient *vault.MockLifecycleClient
+		idpManager      *idp.TenantManager
+	)
+
+	BeforeEach(func() {
+		var err error
+		ctx = context.Background()
+		ctrl = gomock.NewController(GinkgoT())
+		mockIDPClient = idp.NewMockClientInterface(ctrl)
+		mockVaultClient = vault.NewMockLifecycleClient(ctrl)
+
+		idpManager, err = idp.NewTenantManager().
+			SetLogger(logger).
+			SetClient(mockIDPClient).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("provisions vault namespace for newly synced tenant", func() {
+		reconciler := &function{
+			logger:         logger,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-vault",
+			Metadata: privatev1.Metadata_builder{
+				Name:       "test-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				BreakGlassCredentials: privatev1.BreakGlassCredentials_builder{
+					Username: "test-org-osac-break-glass",
+					Password: "pre-generated-password",
+				}.Build(),
+			}.Build(),
+		}.Build()
+
+		mockIDPClient.EXPECT().
+			CreateTenant(gomock.Any(), gomock.Any()).
+			Return(&idp.Tenant{Name: "test-org", Enabled: true}, nil)
+		mockIDPClient.EXPECT().
+			CreateUser(gomock.Any(), "test-org", gomock.Any()).
+			Return(&idp.User{ID: "user-123"}, nil)
+		mockIDPClient.EXPECT().
+			AssignIdpManagerPermissions(gomock.Any(), "user-123").
+			Return(nil)
+
+		mockVaultClient.EXPECT().
+			EnsureTenantNamespace(gomock.Any(), "test-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetState()).To(Equal(privatev1.TenantState_TENANT_STATE_SYNCED))
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("test-org"))
+	})
+
+	It("leaves vault_namespace empty when provisioning fails", func() {
+		reconciler := &function{
+			logger:         logger,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-vault-fail",
+			Metadata: privatev1.Metadata_builder{
+				Name:       "fail-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				BreakGlassCredentials: privatev1.BreakGlassCredentials_builder{
+					Username: "fail-org-osac-break-glass",
+					Password: "pre-generated-password",
+				}.Build(),
+			}.Build(),
+		}.Build()
+
+		mockIDPClient.EXPECT().
+			CreateTenant(gomock.Any(), gomock.Any()).
+			Return(&idp.Tenant{Name: "fail-org", Enabled: true}, nil)
+		mockIDPClient.EXPECT().
+			CreateUser(gomock.Any(), "fail-org", gomock.Any()).
+			Return(&idp.User{ID: "user-456"}, nil)
+		mockIDPClient.EXPECT().
+			AssignIdpManagerPermissions(gomock.Any(), "user-456").
+			Return(nil)
+
+		mockVaultClient.EXPECT().
+			EnsureTenantNamespace(gomock.Any(), "fail-org").
+			Return(fmt.Errorf("vault unavailable"))
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetState()).To(Equal(privatev1.TenantState_TENANT_STATE_SYNCED))
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
+	})
+
+	It("skips vault provisioning when already provisioned", func() {
+		reconciler := &function{
+			logger:         logger,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-already",
+			Metadata: privatev1.Metadata_builder{
+				Name:       "already-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName:  "already-org",
+				VaultNamespace: "already-org",
+			}.Build(),
+		}.Build()
+
+		mockIDPClient.EXPECT().
+			GetTenant(gomock.Any(), "already-org").
+			Return(&idp.Tenant{Name: "already-org"}, nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("already-org"))
+	})
+
+	It("skips vault provisioning when vault lifecycle is nil", func() {
+		reconciler := &function{
+			logger:     logger,
+			idpManager: idpManager,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-no-vault",
+			Metadata: privatev1.Metadata_builder{
+				Name:       "no-vault-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "no-vault-org",
+			}.Build(),
+		}.Build()
+
+		mockIDPClient.EXPECT().
+			GetTenant(gomock.Any(), "no-vault-org").
+			Return(&idp.Tenant{Name: "no-vault-org"}, nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
+	})
+
+	It("retries vault provisioning for synced tenant with empty vault_namespace", func() {
+		reconciler := &function{
+			logger:         logger,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-retry",
+			Metadata: privatev1.Metadata_builder{
+				Name:       "retry-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "retry-org",
+			}.Build(),
+		}.Build()
+
+		mockIDPClient.EXPECT().
+			GetTenant(gomock.Any(), "retry-org").
+			Return(&idp.Tenant{Name: "retry-org"}, nil)
+
+		mockVaultClient.EXPECT().
+			EnsureTenantNamespace(gomock.Any(), "retry-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("retry-org"))
+	})
+
+	It("skips vault provisioning for failed tenants", func() {
+		reconciler := &function{
+			logger:         logger,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		msg := "Previous sync failed"
+		tenant := privatev1.Tenant_builder{
+			Metadata: privatev1.Metadata_builder{
+				Name:       "failed-org",
+				Finalizers: []string{finalizers.Controller},
+				Tenant:     "tenant-1",
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:   privatev1.TenantState_TENANT_STATE_FAILED,
+				Message: &msg,
+			}.Build(),
+		}.Build()
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
 	})
 })

@@ -43,7 +43,7 @@ var _ = Describe("VaultSecretStore", func() {
 		builder := NewVaultSecretStore().
 			SetLogger(logger).
 			SetAddress(server.URL).
-			SetToken("test-token").
+			SetTokenSource(NewStaticVaultTokenSource("test-token")).
 			SetParentNamespace("osac")
 		for _, opt := range opts {
 			opt(builder)
@@ -57,7 +57,7 @@ var _ = Describe("VaultSecretStore", func() {
 		It("fails without logger", func() {
 			_, err := NewVaultSecretStore().
 				SetAddress("http://localhost:8200").
-				SetToken("token").
+				SetTokenSource(NewStaticVaultTokenSource("token")).
 				SetParentNamespace("osac").
 				Build()
 			Expect(err).To(HaveOccurred())
@@ -67,28 +67,28 @@ var _ = Describe("VaultSecretStore", func() {
 		It("fails without address", func() {
 			_, err := NewVaultSecretStore().
 				SetLogger(logger).
-				SetToken("token").
+				SetTokenSource(NewStaticVaultTokenSource("token")).
 				SetParentNamespace("osac").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("address"))
 		})
 
-		It("fails without token", func() {
+		It("fails without token source", func() {
 			_, err := NewVaultSecretStore().
 				SetLogger(logger).
 				SetAddress("http://localhost:8200").
 				SetParentNamespace("osac").
 				Build()
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("token"))
+			Expect(err.Error()).To(ContainSubstring("token source"))
 		})
 
 		It("fails without parent namespace", func() {
 			_, err := NewVaultSecretStore().
 				SetLogger(logger).
 				SetAddress("http://localhost:8200").
-				SetToken("token").
+				SetTokenSource(NewStaticVaultTokenSource("token")).
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parent namespace"))
@@ -304,7 +304,7 @@ var _ = Describe("VaultSecretStore", func() {
 			store, err := NewVaultSecretStore().
 				SetLogger(logger).
 				SetAddress("http://localhost:1").
-				SetToken("test-token").
+				SetTokenSource(NewStaticVaultTokenSource("test-token")).
 				SetParentNamespace("osac").
 				Build()
 			Expect(err).ToNot(HaveOccurred())

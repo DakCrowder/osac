@@ -111,6 +111,11 @@ message TenantStatus {
 
   // Conditions provide detailed status information about various subsystems of the tenant.
   repeated TenantCondition conditions = 6;
+
+  // Name of the tenant's namespace in the Vault-compatible secret store.
+  // Set by the controller after successful namespace provisioning.
+  // Empty when vault is not configured or provisioning has not yet succeeded.
+  string vault_namespace = 7;
 }
 
 // Represents a specific aspect of the tenant's current state.
