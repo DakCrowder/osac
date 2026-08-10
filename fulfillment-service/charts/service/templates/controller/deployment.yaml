@@ -164,7 +164,7 @@ spec:
         - --grpc-listener-tls-crt=/etc/fulfillment-controller/tls/tls.crt
         - --grpc-listener-tls-key=/etc/fulfillment-controller/tls/tls.key
         - --metrics-listener-address=0.0.0.0:8002
-        {{ if .Values.vault.endpoint }}
+        {{ if and .Values.vault.endpoint .Values.vault.credentials }}
         - --vault-endpoint={{ .Values.vault.endpoint }}
         - --vault-namespace={{ .Values.vault.namespace }}
         - --vault-kv-mount-path={{ .Values.vault.kvMountPath }}
@@ -173,13 +173,11 @@ spec:
         - --vault-keycloak-token-endpoint={{ .Values.vault.keycloakTokenEndpoint }}
         - --vault-keycloak-client-id={{ .Values.vault.keycloakClientId }}
         - --vault-keycloak-client-secret-file=/etc/fulfillment-controller/vault/client-secret
+        - --vault-keycloak-discovery-url={{ .Values.vault.keycloakDiscoveryUrl }}
+        - --vault-keycloak-audience={{ .Values.vault.keycloakAudience }}
         {{ if .Values.vault.caCertFile }}
         - --vault-ca-cert-file={{ .Values.vault.caCertFile }}
         {{ end }}
-        {{ if .Values.vault.keycloakDiscoveryUrl }}
-        - --vault-keycloak-discovery-url={{ .Values.vault.keycloakDiscoveryUrl }}
-        {{ end }}
-        - --vault-keycloak-audience={{ .Values.vault.keycloakAudience }}
         {{ end }}
         ports:
         - name: grpc

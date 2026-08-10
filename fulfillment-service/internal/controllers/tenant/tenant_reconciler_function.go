@@ -76,7 +76,7 @@ func (b *FunctionBuilder) SetIdpManager(value *idp.TenantManager) *FunctionBuild
 }
 
 // SetVaultLifecycle sets the vault lifecycle client that the reconciler will use to manage tenant namespaces
-// in the secret store. When nil, vault namespace provisioning is skipped.
+// in the secret store.
 func (b *FunctionBuilder) SetVaultLifecycle(value vault.LifecycleClient) *FunctionBuilder {
 	b.vaultLifecycle = value
 	return b
@@ -198,7 +198,9 @@ func (t *task) update(ctx context.Context) error {
 		if t.tenant.GetStatus().GetState() == privatev1.TenantState_TENANT_STATE_FAILED {
 			return nil
 		}
-		t.ensureVaultNamespace(ctx)
+		if err := t.ensureVaultNamespace(ctx); err != nil {
+			return err
+		}
 		return t.checkDefaultNetworkingReadiness(ctx)
 	}
 
@@ -241,7 +243,9 @@ func (t *task) syncToIDP(ctx context.Context) error {
 		slog.String("tenant_name", tenantName),
 	)
 
-	t.ensureVaultNamespace(ctx)
+	if err := t.ensureVaultNamespace(ctx); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -340,8 +344,11 @@ func (t *task) delete(ctx context.Context) error {
 		return fmt.Errorf("tenant still has %d project(s) pending deletion", remaining)
 	}
 
-	// Skip if not synced to IDP yet
+	// Skip IDP cleanup if not synced to IDP yet, but still clean up vault.
 	if t.tenant.GetStatus().GetState() != privatev1.TenantState_TENANT_STATE_SYNCED {
+		if err := t.deleteVaultNamespace(ctx); err != nil {
+			return err
+		}
 		t.removeFinalizer()
 		return nil
 	}
@@ -444,17 +451,22 @@ func (t *task) updateCondition(conditionType privatev1.TenantConditionType, stat
 	t.tenant.GetStatus().SetConditions(conditions)
 }
 
-// ensureVaultNamespace creates the tenant's namespace in the secret store if not already provisioned.
-// This is a best-effort operation — errors are logged but do not block tenant reconciliation.
-func (t *task) ensureVaultNamespace(ctx context.Context) {
+// ensureVaultNamespace creates the tenant's namespace in the secret store.
+// This operation is idempotent, so retries after partial failures are safe.
+func (t *task) ensureVaultNamespace(ctx context.Context) error {
 	if t.r.vaultLifecycle == nil {
-		return
+		return nil
+	}
+	if t.isBuiltin() {
+		return nil
 	}
 	if t.tenant.GetStatus().GetVaultNamespace() != "" {
-		return
+		return nil
 	}
 
 	tenantName := t.tenant.GetMetadata().GetName()
+	t.tenant.GetStatus().SetVaultNamespace(tenantName)
+
 	err := t.r.vaultLifecycle.EnsureTenantNamespace(ctx, tenantName)
 	if err != nil {
 		t.r.logger.ErrorContext(ctx, "Failed to provision vault namespace for tenant",
@@ -462,19 +474,18 @@ func (t *task) ensureVaultNamespace(ctx context.Context) {
 			slog.String("tenant_name", tenantName),
 			slog.Any("error", err),
 		)
-		return
+		return fmt.Errorf("failed to provision vault namespace: %w", err)
 	}
 
-	t.tenant.GetStatus().SetVaultNamespace(tenantName)
 	t.r.logger.DebugContext(ctx, "Vault namespace provisioned for tenant",
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),
 	)
+	return nil
 }
 
 // deleteVaultNamespace deletes the tenant's namespace from the secret store.
-// Unlike ensureVaultNamespace (best-effort), this is blocking — errors prevent
-// finalizer removal to avoid permanent namespace leaks.
+// This operation is blocking — errors prevent finalizer removal
 func (t *task) deleteVaultNamespace(ctx context.Context) error {
 	if t.r.vaultLifecycle == nil {
 		return nil
@@ -494,6 +505,7 @@ func (t *task) deleteVaultNamespace(ctx context.Context) error {
 		return fmt.Errorf("failed to delete vault namespace: %w", err)
 	}
 
+	t.tenant.GetStatus().SetVaultNamespace("")
 	t.r.logger.DebugContext(ctx, "Vault namespace deleted for tenant",
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),

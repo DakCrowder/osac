@@ -16,7 +16,6 @@ package vault
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -28,6 +27,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
+)
+
+const (
+	applicationJSON           = "application/json"
+	applicationFormURLencoded = "application/x-www-form-urlencoded"
+	oauth2ClientCredentials   = "client_credentials"
+	vaultNamespaceHeader      = "X-Vault-Namespace"
+	contentTypeHeader         = "Content-Type"
 )
 
 type AuthenticatorBuilder struct {
@@ -56,6 +65,7 @@ type Authenticator struct {
 	mu          sync.Mutex
 	cachedToken string
 	tokenExpiry time.Time
+	sfGroup     singleflight.Group
 }
 
 func NewAuthenticator() *AuthenticatorBuilder {
@@ -138,14 +148,22 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 		err = errors.New("keycloak client secret is mandatory")
 		return
 	}
+	if err = validatePathComponent(b.vaultAuthMountPath, "vault auth mount path"); err != nil {
+		return
+	}
 
-	httpClient := &http.Client{}
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	if b.caPool != nil {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: b.caPool,
-			},
+		transport, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			err = errors.New("unexpected default transport type")
+			return
 		}
+		cloned := transport.Clone()
+		cloned.TLSClientConfig.RootCAs = b.caPool
+		httpClient.Transport = cloned
 	}
 
 	result = &Authenticator{
@@ -164,32 +182,37 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 
 func (a *Authenticator) VaultToken(ctx context.Context) (string, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if a.cachedToken != "" && time.Until(a.tokenExpiry) > 30*time.Second {
-		return a.cachedToken, nil
+		token := a.cachedToken
+		a.mu.Unlock()
+		return token, nil
 	}
+	a.mu.Unlock()
 
-	keycloakJWT, err := a.fetchKeycloakToken(ctx)
+	result, err, _ := a.sfGroup.Do("vault-lifecycle-token", func() (any, error) {
+		keycloakJWT, err := a.fetchKeycloakToken(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to obtain keycloak token: %w", err)
+		}
+
+		vaultToken, leaseDuration, err := a.loginToVault(ctx, keycloakJWT)
+		if err != nil {
+			return "", fmt.Errorf("failed to login to vault with JWT: %w", err)
+		}
+
+		a.mu.Lock()
+		a.cachedToken = vaultToken
+		a.tokenExpiry = time.Now().Add(time.Duration(leaseDuration) * time.Second)
+		a.mu.Unlock()
+
+		a.logger.InfoContext(ctx, "Authenticated to vault via keycloak")
+
+		return vaultToken, nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to obtain keycloak token: %w", err)
+		return "", err
 	}
-
-	vaultToken, leaseDuration, err := a.loginToVault(ctx, keycloakJWT)
-	if err != nil {
-		return "", fmt.Errorf("failed to login to vault with JWT: %w", err)
-	}
-
-	a.cachedToken = vaultToken
-	a.tokenExpiry = time.Now().Add(time.Duration(leaseDuration) * time.Second)
-
-	a.logger.InfoContext(ctx, "Authenticated to vault via keycloak",
-		slog.String("namespace", a.vaultNamespace),
-		slog.String("role", a.vaultRole),
-		slog.Int("lease_duration_seconds", leaseDuration),
-	)
-
-	return a.cachedToken, nil
+	return result.(string), nil
 }
 
 type keycloakTokenResponse struct {
@@ -200,7 +223,7 @@ type keycloakTokenResponse struct {
 
 func (a *Authenticator) fetchKeycloakToken(ctx context.Context) (string, error) {
 	form := url.Values{
-		"grant_type":    {"client_credentials"},
+		"grant_type":    {oauth2ClientCredentials},
 		"client_id":     {a.keycloakClientID},
 		"client_secret": {a.keycloakClientSecret},
 	}
@@ -212,7 +235,7 @@ func (a *Authenticator) fetchKeycloakToken(ctx context.Context) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("failed to create keycloak request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(contentTypeHeader, applicationFormURLencoded)
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -265,8 +288,8 @@ func (a *Authenticator) loginToVault(ctx context.Context, jwt string) (string, i
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create vault login request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Vault-Namespace", a.vaultNamespace)
+	req.Header.Set(contentTypeHeader, applicationJSON)
+	req.Header.Set(vaultNamespaceHeader, a.vaultNamespace)
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {

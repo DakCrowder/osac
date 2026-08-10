@@ -130,6 +130,9 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 		err = errors.New("keycloak discovery URL is mandatory")
 		return
 	}
+	if err = validatePathComponent(b.kvMountPath, "KV mount path"); err != nil {
+		return
+	}
 
 	config := vaultapi.DefaultConfig()
 	config.Address = b.address
@@ -274,9 +277,12 @@ func (c *VaultLifecycleClient) configureJWTAuth(ctx context.Context, client *vau
 
 func (c *VaultLifecycleClient) createPolicy(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
-	policy := fmt.Sprintf(`path "%s/*" {
+	policy := fmt.Sprintf(`path "%s/data/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
-}`, c.kvMountPath)
+}
+path "%s/metadata/*" {
+  capabilities = ["read", "delete", "list"]
+}`, c.kvMountPath, c.kvMountPath)
 
 	err := client.Sys().PutPolicyWithContext(ctx, "tenant-kv-access", policy)
 	if err != nil {

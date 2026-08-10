@@ -17,19 +17,8 @@ import "context"
 
 // VaultTokenSource provides Vault tokens on demand. Implementations may cache tokens and
 // handle renewal transparently.
+//
+//go:generate mockgen -destination=vault_token_source_mock.go -package=vault . VaultTokenSource
 type VaultTokenSource interface {
 	VaultToken(ctx context.Context) (string, error)
-}
-
-// StaticVaultTokenSource wraps a fixed token string. Intended for tests and dev environments.
-type StaticVaultTokenSource struct {
-	token string
-}
-
-func NewStaticVaultTokenSource(token string) *StaticVaultTokenSource {
-	return &StaticVaultTokenSource{token: token}
-}
-
-func (s *StaticVaultTokenSource) VaultToken(_ context.Context) (string, error) {
-	return s.token, nil
 }

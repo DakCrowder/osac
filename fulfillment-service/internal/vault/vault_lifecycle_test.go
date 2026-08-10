@@ -24,6 +24,7 @@ import (
 	vaultapi "github.com/hashicorp/vault/api"
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
 var _ = Describe("VaultLifecycleClient", func() {
@@ -34,6 +35,14 @@ var _ = Describe("VaultLifecycleClient", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 	})
+
+	newMockTokenSource := func(token string) *MockVaultTokenSource {
+		ctrl := gomock.NewController(GinkgoT())
+		DeferCleanup(ctrl.Finish)
+		mock := NewMockVaultTokenSource(ctrl)
+		mock.EXPECT().VaultToken(gomock.Any()).Return(token, nil).AnyTimes()
+		return mock
+	}
 
 	type requestRecord struct {
 		method    string
@@ -48,7 +57,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 		client, err := NewVaultLifecycleClient().
 			SetLogger(logger).
 			SetAddress(server.URL).
-			SetTokenSource(NewStaticVaultTokenSource("test-token")).
+			SetTokenSource(newMockTokenSource("test-token")).
 			SetParentNamespace("osac").
 			SetKVMountPath("secret").
 			SetKeycloakDiscoveryURL("https://keycloak.example.com/realms/osac/.well-known/openid-configuration").
@@ -62,7 +71,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 		It("fails without logger", func() {
 			_, err := NewVaultLifecycleClient().
 				SetAddress("http://localhost:8200").
-				SetTokenSource(NewStaticVaultTokenSource("token")).
+				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
 				Build()
@@ -73,7 +82,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 		It("fails without address", func() {
 			_, err := NewVaultLifecycleClient().
 				SetLogger(logger).
-				SetTokenSource(NewStaticVaultTokenSource("token")).
+				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
 				Build()
@@ -96,7 +105,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 			_, err := NewVaultLifecycleClient().
 				SetLogger(logger).
 				SetAddress("http://localhost:8200").
-				SetTokenSource(NewStaticVaultTokenSource("token")).
+				SetTokenSource(newMockTokenSource("token")).
 				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
 				Build()
 			Expect(err).To(HaveOccurred())
@@ -107,11 +116,24 @@ var _ = Describe("VaultLifecycleClient", func() {
 			_, err := NewVaultLifecycleClient().
 				SetLogger(logger).
 				SetAddress("http://localhost:8200").
-				SetTokenSource(NewStaticVaultTokenSource("token")).
+				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("keycloak discovery URL"))
+		})
+
+		It("fails with invalid KV mount path", func() {
+			_, err := NewVaultLifecycleClient().
+				SetLogger(logger).
+				SetAddress("http://localhost:8200").
+				SetTokenSource(newMockTokenSource("token")).
+				SetParentNamespace("osac").
+				SetKVMountPath("../escape").
+				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
+				Build()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("KV mount path"))
 		})
 
 		It("uses default KV mount path and audience", func() {
@@ -124,7 +146,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 			client, err := NewVaultLifecycleClient().
 				SetLogger(logger).
 				SetAddress(server.URL).
-				SetTokenSource(NewStaticVaultTokenSource("token")).
+				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
 				Build()
@@ -371,7 +393,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 			client, err := NewVaultLifecycleClient().
 				SetLogger(logger).
 				SetAddress(server.URL).
-				SetTokenSource(NewStaticVaultTokenSource("test-token")).
+				SetTokenSource(newMockTokenSource("test-token")).
 				SetParentNamespace("osac").
 				SetKVMountPath("custom-kv").
 				SetKeycloakDiscoveryURL("https://keycloak/realms/osac/.well-known/openid-configuration").
@@ -380,7 +402,8 @@ var _ = Describe("VaultLifecycleClient", func() {
 
 			err = client.EnsureTenantNamespace(ctx, "tenant-a")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(policyBody).To(ContainSubstring(`"custom-kv/*"`))
+			Expect(policyBody).To(ContainSubstring(`"custom-kv/data/*"`))
+			Expect(policyBody).To(ContainSubstring(`"custom-kv/metadata/*"`))
 		})
 
 		It("creates role with correct bound claims for tenant", func() {

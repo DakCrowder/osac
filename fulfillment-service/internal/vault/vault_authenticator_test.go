@@ -408,12 +408,3 @@ var _ = Describe("Authenticator", func() {
 		})
 	})
 })
-
-var _ = Describe("StaticVaultTokenSource", func() {
-	It("returns the configured token", func() {
-		source := NewStaticVaultTokenSource("my-token")
-		token, err := source.VaultToken(context.Background())
-		Expect(err).ToNot(HaveOccurred())
-		Expect(token).To(Equal("my-token"))
-	})
-})

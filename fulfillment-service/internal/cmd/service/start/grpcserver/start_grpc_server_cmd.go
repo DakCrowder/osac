@@ -183,24 +183,7 @@ func Cmd() *cobra.Command {
 		},
 		emergencyServiceAccountsFlagHelp,
 	)
-	flags.StringVar(
-		&runner.args.vaultEndpoint,
-		"vault-endpoint",
-		"",
-		vaultEndpointFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultNamespace,
-		"vault-namespace",
-		"osac",
-		vaultNamespaceFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKVMountPath,
-		"vault-kv-mount-path",
-		"secret",
-		vaultKVMountPathFlagHelp,
-	)
+	vault.AddBaseFlags(flags)
 	network.AddGrpcKeepaliveFlags(flags)
 	return command
 }
@@ -220,9 +203,7 @@ type runnerContext struct {
 		tokenEncryptionCrt       string
 		tokenIssuer              string
 		emergencyServiceAccounts []string
-		vaultEndpoint            string
-		vaultNamespace           string
-		vaultKVMountPath         string
+		vaultBase                vault.BaseConfig
 	}
 }
 
@@ -1113,12 +1094,18 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	}
 	privatev1.RegisterStorageBackendsServer(grpcServer, privateStorageBackendsServer)
 
+	// Read the vault flags:
+	c.args.vaultBase, err = vault.BaseConfigFromFlags(c.flags)
+	if err != nil {
+		return fmt.Errorf("failed to read vault flags: %w", err)
+	}
+
 	// Perform vault health check if configured:
-	if c.args.vaultEndpoint != "" {
+	if c.args.vaultBase.Endpoint != "" {
 		c.logger.InfoContext(ctx, "Performing vault health check")
 		healthChecker, healthErr := vault.NewHealthChecker().
 			SetLogger(c.logger).
-			SetAddress(c.args.vaultEndpoint).
+			SetAddress(c.args.vaultBase.Endpoint).
 			SetCaPool(caPool).
 			Build()
 		if healthErr != nil {
@@ -1736,17 +1723,4 @@ const emergencyServiceAccountsFlagHelp = `
 _NAMES_ - Comma-separated list of Kubernetes service account names that are allowed to access the private API with
 administrator permissions. These are intended only for emergency situations, for example when the regular authentication
 mechanisms are not working. The service accounts are expected to be in the namespace where the service is deployed.
-`
-
-const vaultEndpointFlagHelp = `
-_URL_ - Vault API endpoint URL.
-`
-
-const vaultNamespaceFlagHelp = `
-_NAMESPACE_ - Parent namespace path within the Vault-compatible
-store. Tenant namespaces are created as children of this namespace.
-`
-
-const vaultKVMountPathFlagHelp = `
-_PATH_ - KV v2 secret engine mount path within tenant namespaces.
 `

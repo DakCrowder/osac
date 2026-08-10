@@ -161,72 +161,8 @@ func Cmd() *cobra.Command {
 		"",
 		idpClientSecretFlagHelp,
 	)
-	flags.StringVar(
-		&runner.args.vaultEndpoint,
-		"vault-endpoint",
-		"",
-		vaultEndpointFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultNamespace,
-		"vault-namespace",
-		"osac",
-		vaultNamespaceFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKVMountPath,
-		"vault-kv-mount-path",
-		"secret",
-		vaultKVMountPathFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultLifecycleRole,
-		"vault-lifecycle-role",
-		"",
-		vaultLifecycleRoleFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultLifecycleMountPath,
-		"vault-lifecycle-mount-path",
-		"jwt",
-		vaultLifecycleMountPathFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKeycloakDiscoveryURL,
-		"vault-keycloak-discovery-url",
-		"",
-		vaultKeycloakDiscoveryURLFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKeycloakAudience,
-		"vault-keycloak-audience",
-		"osac-api",
-		vaultKeycloakAudienceFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKeycloakTokenEndpoint,
-		"vault-keycloak-token-endpoint",
-		"",
-		vaultKeycloakTokenEndpointFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKeycloakClientID,
-		"vault-keycloak-client-id",
-		"",
-		vaultKeycloakClientIDFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultKeycloakClientSecretFile,
-		"vault-keycloak-client-secret-file",
-		"",
-		vaultKeycloakClientSecretFileFlagHelp,
-	)
-	flags.StringVar(
-		&runner.args.vaultCaCertFile,
-		"vault-ca-cert-file",
-		"",
-		vaultCaCertFileFlagHelp,
-	)
+	vault.AddBaseFlags(flags)
+	vault.AddLifecycleFlags(flags)
 	network.AddGrpcClientFlags(flags, network.GrpcClientName, network.DefaultGrpcAddress)
 	network.AddListenerFlags(flags, network.GrpcListenerName, network.DefaultGrpcAddress)
 	network.AddListenerFlags(flags, network.MetricsListenerName, network.DefaultMetricsAddress)
@@ -238,30 +174,21 @@ type runnerContext struct {
 	logger *slog.Logger
 	flags  *pflag.FlagSet
 	args   struct {
-		caFiles                       []string
-		authIssuerUrl                 string
-		authIssuerUrlFile             string
-		authClientId                  string
-		authClientIdFile              string
-		authClientSecret              string
-		authClientSecretFile          string
-		idpProvider                   string
-		idpURL                        string
-		idpClientId                   string
-		idpClientIdFile               string
-		idpClientSecret               string
-		idpClientSecretFile           string
-		vaultEndpoint                 string
-		vaultNamespace                string
-		vaultKVMountPath              string
-		vaultLifecycleRole            string
-		vaultLifecycleMountPath       string
-		vaultKeycloakDiscoveryURL     string
-		vaultKeycloakAudience         string
-		vaultKeycloakTokenEndpoint    string
-		vaultKeycloakClientID         string
-		vaultKeycloakClientSecretFile string
-		vaultCaCertFile               string
+		caFiles              []string
+		authIssuerUrl        string
+		authIssuerUrlFile    string
+		authClientId         string
+		authClientIdFile     string
+		authClientSecret     string
+		authClientSecretFile string
+		idpProvider          string
+		idpURL               string
+		idpClientId          string
+		idpClientIdFile      string
+		idpClientSecret      string
+		idpClientSecretFile  string
+		vaultBase            vault.BaseConfig
+		vaultLifecycle       vault.LifecycleConfig
 	}
 	client *grpc.ClientConn
 }
@@ -902,10 +829,33 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		}
 	}()
 
-	// Create the vault lifecycle client (optional):
-	var vaultLifecycle vault.LifecycleClient
-	if r.args.vaultEndpoint != "" {
-		vaultLifecycle, err = r.createVaultLifecycleClient(caPool)
+	// Read the vault flags:
+	r.args.vaultBase, err = vault.BaseConfigFromFlags(r.flags)
+	if err != nil {
+		return fmt.Errorf("failed to read vault flags: %w", err)
+	}
+
+	// Create the vault lifecycle client:
+	var vaultLifecycleClient vault.LifecycleClient
+	if r.args.vaultBase.Endpoint != "" {
+		r.args.vaultLifecycle, err = vault.LifecycleConfigFromFlags(r.flags)
+		if err != nil {
+			return fmt.Errorf("failed to read vault lifecycle flags: %w", err)
+		}
+		vaultCaPool := caPool
+		if r.args.vaultBase.CaCertFile != "" {
+			vaultCaPool, err = network.NewCertPool().
+				SetLogger(r.logger).
+				AddFiles(r.args.caFiles...).
+				AddFile(r.args.vaultBase.CaCertFile).
+				Build()
+			if err != nil {
+				return fmt.Errorf("failed to load vault CA certificates: %w", err)
+			}
+		}
+		vaultLifecycleClient, err = vault.NewLifecycleClientFromConfig(
+			r.logger, r.args.vaultBase, r.args.vaultLifecycle, vaultCaPool,
+		)
 		if err != nil {
 			return err
 		}
@@ -917,7 +867,7 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetLogger(r.logger).
 		SetConnection(r.client).
 		SetIdpManager(idpManager).
-		SetVaultLifecycle(vaultLifecycle).
+		SetVaultLifecycle(vaultLifecycleClient).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create tenant reconciler function: %w", err)
@@ -1381,105 +1331,6 @@ func (r *runnerContext) createIDPClient(ctx context.Context, caPool *x509.CertPo
 	return idpClient, nil
 }
 
-// createVaultLifecycleClient creates the vault lifecycle client for tenant namespace management.
-func (r *runnerContext) createVaultLifecycleClient(caPool *x509.CertPool) (vault.LifecycleClient, error) {
-	if r.args.vaultKeycloakDiscoveryURL == "" {
-		return nil, fmt.Errorf(
-			"flag '--vault-keycloak-discovery-url' is required when '--vault-endpoint' is set",
-		)
-	}
-	if r.args.vaultLifecycleRole == "" {
-		return nil, fmt.Errorf(
-			"flag '--vault-lifecycle-role' is required when '--vault-endpoint' is set",
-		)
-	}
-	if r.args.vaultKeycloakTokenEndpoint == "" {
-		return nil, fmt.Errorf(
-			"flag '--vault-keycloak-token-endpoint' is required when '--vault-endpoint' is set",
-		)
-	}
-	if r.args.vaultKeycloakClientID == "" {
-		return nil, fmt.Errorf(
-			"flag '--vault-keycloak-client-id' is required when '--vault-endpoint' is set",
-		)
-	}
-	if r.args.vaultKeycloakClientSecretFile == "" {
-		return nil, fmt.Errorf(
-			"flag '--vault-keycloak-client-secret-file' is required when '--vault-endpoint' is set",
-		)
-	}
-
-	keycloakClientSecret, err := r.readTrimmedFile(r.args.vaultKeycloakClientSecretFile)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to read vault keycloak client secret from file '%s': %w",
-			r.args.vaultKeycloakClientSecretFile, err,
-		)
-	}
-
-	vaultCaPool := caPool
-	if r.args.vaultCaCertFile != "" {
-		var certData []byte
-		certData, err = os.ReadFile(filepath.Clean(r.args.vaultCaCertFile))
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to read vault CA cert file '%s': %w",
-				r.args.vaultCaCertFile, err,
-			)
-		}
-		vaultCaPool = x509.NewCertPool()
-		if !vaultCaPool.AppendCertsFromPEM(certData) {
-			return nil, fmt.Errorf(
-				"failed to parse certificates from vault CA cert file '%s'",
-				r.args.vaultCaCertFile,
-			)
-		}
-	}
-
-	r.logger.InfoContext(context.Background(), "Creating vault authenticator",
-		slog.String("endpoint", r.args.vaultEndpoint),
-		slog.String("namespace", r.args.vaultNamespace),
-		slog.String("role", r.args.vaultLifecycleRole),
-		slog.String("mount_path", r.args.vaultLifecycleMountPath),
-	)
-
-	authenticator, err := vault.NewAuthenticator().
-		SetLogger(r.logger).
-		SetVaultAddress(r.args.vaultEndpoint).
-		SetVaultNamespace(r.args.vaultNamespace).
-		SetVaultAuthMountPath(r.args.vaultLifecycleMountPath).
-		SetVaultRole(r.args.vaultLifecycleRole).
-		SetKeycloakTokenEndpoint(r.args.vaultKeycloakTokenEndpoint).
-		SetKeycloakClientID(r.args.vaultKeycloakClientID).
-		SetKeycloakClientSecret(keycloakClientSecret).
-		SetCaPool(vaultCaPool).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create vault authenticator: %w", err)
-	}
-
-	r.logger.InfoContext(context.Background(), "Creating vault lifecycle client",
-		slog.String("endpoint", r.args.vaultEndpoint),
-		slog.String("namespace", r.args.vaultNamespace),
-	)
-
-	client, err := vault.NewVaultLifecycleClient().
-		SetLogger(r.logger).
-		SetAddress(r.args.vaultEndpoint).
-		SetTokenSource(authenticator).
-		SetParentNamespace(r.args.vaultNamespace).
-		SetKVMountPath(r.args.vaultKVMountPath).
-		SetKeycloakDiscoveryURL(r.args.vaultKeycloakDiscoveryURL).
-		SetKeycloakAudience(r.args.vaultKeycloakAudience).
-		SetCaPool(vaultCaPool).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create vault lifecycle client: %w", err)
-	}
-
-	return client, nil
-}
-
 // readTrimmedFile reads the content of the given file and returns it with all leading and trailing whitespace removed.
 func (r *runnerContext) readTrimmedFile(file string) (result string, err error) {
 	data, err := os.ReadFile(filepath.Clean(file))
@@ -1563,64 +1414,4 @@ authentication. Mutually exclusive with {{ bt }}--idp-client-secret{{ bt }}.
 const idpClientSecretFlagHelp = `
 _SECRET_ - OAuth client secret for IDP authentication. Mutually
 exclusive with {{ bt }}--idp-client-secret-file{{ bt }}.
-`
-
-const vaultEndpointFlagHelp = `
-_URL_ - Vault API endpoint URL. When set, enables tenant namespace
-provisioning in the Vault-compatible secret store.
-`
-
-const vaultNamespaceFlagHelp = `
-_NAMESPACE_ - Parent namespace path within the Vault-compatible
-store. Tenant namespaces are created as children of this namespace.
-`
-
-const vaultKVMountPathFlagHelp = `
-_PATH_ - KV v2 secret engine mount path within tenant namespaces.
-`
-
-const vaultLifecycleRoleFlagHelp = `
-_ROLE_ - Vault role name used when authenticating with JWT for
-lifecycle operations (tenant namespace management). Required when
-{{ bt }}--vault-endpoint{{ bt }} is set.
-`
-
-const vaultLifecycleMountPathFlagHelp = `
-_PATH_ - Auth method mount path in the Vault parent namespace
-used for lifecycle JWT authentication.
-`
-
-const vaultKeycloakTokenEndpointFlagHelp = `
-_URL_ - Keycloak token endpoint URL used by the controller to
-obtain JWTs for Vault authentication via client credentials flow.
-Required when {{ bt }}--vault-endpoint{{ bt }} is set.
-`
-
-const vaultKeycloakClientIDFlagHelp = `
-_ID_ - Keycloak client identifier used by the controller for
-Vault authentication. Required when {{ bt }}--vault-endpoint{{ bt }}
-is set.
-`
-
-const vaultKeycloakClientSecretFileFlagHelp = `
-_FILE_ - File containing the Keycloak client secret used by the
-controller for Vault authentication. Required when
-{{ bt }}--vault-endpoint{{ bt }} is set.
-`
-
-const vaultCaCertFileFlagHelp = `
-_FILE_ - File containing CA certificates for TLS connections to the
-Vault-compatible secret store. When not set, the shared CA pool from
-{{ bt }}--ca-file{{ bt }} is used.
-`
-
-const vaultKeycloakDiscoveryURLFlagHelp = `
-_URL_ - Keycloak OIDC discovery URL used to configure JWT auth
-in tenant Vault namespaces. Required when {{ bt }}--vault-endpoint{{ bt }}
-is set.
-`
-
-const vaultKeycloakAudienceFlagHelp = `
-_AUDIENCE_ - Expected audience claim in Keycloak JWTs for Vault
-JWT auth role configuration.
 `
