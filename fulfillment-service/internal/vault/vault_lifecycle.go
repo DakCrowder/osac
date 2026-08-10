@@ -341,7 +341,8 @@ func isAlreadyExistsError(err error) bool {
 	if errors.As(err, &respErr) && respErr.StatusCode == http.StatusBadRequest {
 		body := strings.Join(respErr.Errors, " ")
 		return strings.Contains(body, "already exists") ||
-			strings.Contains(body, "existing mount")
+			strings.Contains(body, "existing mount") ||
+			strings.Contains(body, "path is already in use")
 	}
 	return false
 }

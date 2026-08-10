@@ -514,6 +514,11 @@ var _ = Describe("VaultLifecycleClient", func() {
 			Expect(isAlreadyExistsError(err)).To(BeTrue())
 		})
 
+		It("returns true for 'path is already in use' in error body", func() {
+			err := generateResponseError(http.StatusBadRequest, "path is already in use at secret/")
+			Expect(isAlreadyExistsError(err)).To(BeTrue())
+		})
+
 		It("returns false for non-400 status", func() {
 			err := generateResponseError(http.StatusInternalServerError, "already exists")
 			Expect(isAlreadyExistsError(err)).To(BeFalse())

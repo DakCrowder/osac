@@ -1479,16 +1479,18 @@ func (t *Tool) configureOpenBao(ctx context.Context) error {
 		return fmt.Errorf("failed to configure JWT auth in osac namespace: %w", err)
 	}
 
-	// Create a policy granting the lifecycle role full control over child
-	// namespaces, auth methods, mounts, policies, and roles. Uses the
-	// sys/policy API because the testing.Command helper does not support stdin.
+	// Create a policy granting the lifecycle role control over child
+	// namespaces. The "+" glob matches any single child namespace segment,
+	// allowing the parent-scoped token to manage mounts, auth methods,
+	// policies, and roles inside each tenant namespace. Uses the sys/policy
+	// API because the testing.Command helper does not support stdin.
 	lifecyclePolicy := strings.Join([]string{
-		`path "sys/namespaces/*" { capabilities = ["create","read","update","delete","list"] }`,
-		`path "sys/mounts/*"     { capabilities = ["create","read","update","delete","list"] }`,
-		`path "sys/auth/*"       { capabilities = ["create","read","update","delete","list","sudo"] }`,
-		`path "sys/policies/*"   { capabilities = ["create","read","update","delete","list"] }`,
-		`path "auth/*"           { capabilities = ["create","read","update","delete","list"] }`,
-		`path "secret/*"         { capabilities = ["create","read","update","delete","list"] }`,
+		`path "sys/namespaces/*"      { capabilities = ["create","read","update","delete","list"] }`,
+		`path "+/sys/mounts/*"        { capabilities = ["create","read","update","delete","list","sudo"] }`,
+		`path "+/sys/mounts"          { capabilities = ["read"] }`,
+		`path "+/sys/policies/acl/*"  { capabilities = ["create","read","update","delete","list"] }`,
+		`path "+/sys/auth/*"          { capabilities = ["create","read","update","delete","list","sudo"] }`,
+		`path "+/auth/*"              { capabilities = ["create","read","update","delete","list"] }`,
 	}, " ")
 	if err := t.execBao(ctx,
 		"bao", "write", "-ns=osac", "sys/policy/lifecycle",
