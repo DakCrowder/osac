@@ -1103,10 +1103,27 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	// Perform vault health check if configured:
 	if c.args.vaultBase.Endpoint != "" {
 		c.logger.InfoContext(ctx, "Performing vault health check")
+		vaultCaPool := caPool
+		if c.args.vaultBase.CaCertFile != "" {
+			certPEM, readErr := os.ReadFile(c.args.vaultBase.CaCertFile)
+			if readErr != nil {
+				return fmt.Errorf(
+					"failed to read vault CA cert from file '%s': %w",
+					c.args.vaultBase.CaCertFile, readErr,
+				)
+			}
+			vaultCaPool = caPool.Clone()
+			if !vaultCaPool.AppendCertsFromPEM(certPEM) {
+				return fmt.Errorf(
+					"vault CA cert file '%s' contains no valid certificates",
+					c.args.vaultBase.CaCertFile,
+				)
+			}
+		}
 		healthChecker, healthErr := vault.NewHealthChecker().
 			SetLogger(c.logger).
 			SetAddress(c.args.vaultBase.Endpoint).
-			SetCaPool(caPool).
+			SetCaPool(vaultCaPool).
 			Build()
 		if healthErr != nil {
 			c.logger.ErrorContext(ctx, "Failed to create Vault health checker",

@@ -100,7 +100,7 @@ service:
     lifecycleMountPath: "jwt"
     keycloakTokenEndpoint: "https://keycloak.keycloak.svc.cluster.local:8000/realms/osac/protocol/openid-connect/token"
     keycloakClientId: "osac-controller"
-    keycloakDiscoveryUrl: "https://keycloak.keycloak.svc.cluster.local:8000/realms/osac/.well-known/openid-configuration"
+    keycloakIssuerUrl: "https://keycloak.keycloak.svc.cluster.local:8000/realms/osac"
     keycloakAudience: "osac-api"
     credentials:
     - secret:

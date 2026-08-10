@@ -1482,8 +1482,7 @@ func (t *Tool) configureOpenBao(ctx context.Context) error {
 	// Create a policy granting the lifecycle role control over child
 	// namespaces. The "+" glob matches any single child namespace segment,
 	// allowing the parent-scoped token to manage mounts, auth methods,
-	// policies, and roles inside each tenant namespace. Uses the sys/policy
-	// API because the testing.Command helper does not support stdin.
+	// policies, and roles inside each tenant namespace.
 	lifecyclePolicy := strings.Join([]string{
 		`path "sys/namespaces/*"      { capabilities = ["create","read","update","delete","list"] }`,
 		`path "+/sys/mounts/*"        { capabilities = ["create","read","update","delete","list","sudo"] }`,
@@ -1515,7 +1514,6 @@ func (t *Tool) configureOpenBao(ctx context.Context) error {
 }
 
 // execBao runs a bao CLI command inside the OpenBao pod via kubectl exec.
-// "already exists" errors are tolerated for idempotency.
 func (t *Tool) execBao(ctx context.Context, baoArgs ...string) error {
 	args := []string{
 		"exec", "openbao",
@@ -1542,12 +1540,13 @@ func (t *Tool) execBao(ctx context.Context, baoArgs ...string) error {
 	if err != nil {
 		combined := string(stdout) + string(stderr)
 		if strings.Contains(combined, "already exists") ||
-			strings.Contains(combined, "existing mount") {
+			strings.Contains(combined, "existing mount") ||
+			strings.Contains(combined, "path is already in use") {
 			t.logger.DebugContext(ctx, "OpenBao resource already exists",
 				slog.String("command", strings.Join(baoArgs, " ")))
 			return nil
 		}
-		return err
+		return fmt.Errorf("%s: %w", combined, err)
 	}
 	return nil
 }
@@ -1671,7 +1670,7 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 			"lifecycleMountPath":    "jwt",
 			"keycloakTokenEndpoint": fmt.Sprintf("https://%s/realms/osac/protocol/openid-connect/token", keycloakAddr),
 			"keycloakClientId":      "osac-controller",
-			"keycloakIssuerUrl":  fmt.Sprintf("https://%s/realms/osac", keycloakAddr),
+			"keycloakIssuerUrl":     fmt.Sprintf("https://%s/realms/osac", keycloakAddr),
 			"keycloakAudience":      "osac-api",
 			"caCertFile":            "/etc/fulfillment-controller/tls/cas/bundle.pem",
 			"credentials": []map[string]any{
