@@ -35,6 +35,10 @@ type LifecycleClient interface {
 	// EnsureTenantNamespace creates a tenant namespace with KV v2, JWT auth, policy, and role.
 	// Each step is idempotent — "already exists" errors are tolerated.
 	EnsureTenantNamespace(ctx context.Context, tenantName string) error
+
+	// DeleteTenantNamespace deletes a tenant namespace and all resources within it.
+	// Deletion is idempotent — "not found" errors are tolerated.
+	DeleteTenantNamespace(ctx context.Context, tenantName string) error
 }
 
 type VaultLifecycleClientBuilder struct {
@@ -200,6 +204,29 @@ func (c *VaultLifecycleClient) EnsureTenantNamespace(ctx context.Context, tenant
 	return nil
 }
 
+func (c *VaultLifecycleClient) DeleteTenantNamespace(ctx context.Context, tenantName string) error {
+	if err := validatePathComponent(tenantName, "tenant name"); err != nil {
+		return err
+	}
+
+	parentClient, err := c.parentClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create parent namespace client: %w", err)
+	}
+
+	_, err = parentClient.Logical().DeleteWithContext(ctx,
+		fmt.Sprintf("sys/namespaces/%s", tenantName))
+	if err != nil && !isNotFoundError(err) {
+		return fmt.Errorf("failed to delete namespace %q: %w", tenantName, err)
+	}
+
+	c.logger.InfoContext(ctx, "Tenant vault namespace deleted",
+		slog.String("tenant", tenantName),
+		slog.String("namespace", path.Join(c.parentNamespace, tenantName)),
+	)
+	return nil
+}
+
 func (c *VaultLifecycleClient) createNamespace(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
 	_, err := client.Logical().WriteWithContext(ctx,
@@ -309,6 +336,14 @@ func isAlreadyExistsError(err error) bool {
 		body := strings.Join(respErr.Errors, " ")
 		return strings.Contains(body, "already exists") ||
 			strings.Contains(body, "existing mount")
+	}
+	return false
+}
+
+func isNotFoundError(err error) bool {
+	var respErr *vaultapi.ResponseError
+	if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+		return true
 	}
 	return false
 }

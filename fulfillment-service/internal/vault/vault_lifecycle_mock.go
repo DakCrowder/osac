@@ -40,6 +40,20 @@ func (m *MockLifecycleClient) EXPECT() *MockLifecycleClientMockRecorder {
 	return m.recorder
 }
 
+// DeleteTenantNamespace mocks base method.
+func (m *MockLifecycleClient) DeleteTenantNamespace(ctx context.Context, tenantName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTenantNamespace", ctx, tenantName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTenantNamespace indicates an expected call of DeleteTenantNamespace.
+func (mr *MockLifecycleClientMockRecorder) DeleteTenantNamespace(ctx, tenantName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTenantNamespace", reflect.TypeOf((*MockLifecycleClient)(nil).DeleteTenantNamespace), ctx, tenantName)
+}
+
 // EnsureTenantNamespace mocks base method.
 func (m *MockLifecycleClient) EnsureTenantNamespace(ctx context.Context, tenantName string) error {
 	m.ctrl.T.Helper()

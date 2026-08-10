@@ -409,6 +409,77 @@ var _ = Describe("VaultLifecycleClient", func() {
 		})
 	})
 
+	Describe("DeleteTenantNamespace", func() {
+		It("sends DELETE request with correct path and namespace", func() {
+			var mu sync.Mutex
+			var requests []requestRecord
+
+			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
+				rec := requestRecord{
+					method:    r.Method,
+					path:      r.URL.Path,
+					namespace: r.Header.Get("X-Vault-Namespace"),
+				}
+				mu.Lock()
+				requests = append(requests, rec)
+				mu.Unlock()
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			})
+
+			err := client.DeleteTenantNamespace(ctx, "tenant-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(requests).To(HaveLen(1))
+
+			Expect(requests[0].method).To(Equal("DELETE"))
+			Expect(requests[0].path).To(Equal("/v1/sys/namespaces/tenant-a"))
+			Expect(requests[0].namespace).To(Equal("osac"))
+		})
+
+		It("tolerates not-found errors", func() {
+			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"errors":["no namespace"]}`))
+			})
+
+			err := client.DeleteTenantNamespace(ctx, "tenant-a")
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("returns error on server failure", func() {
+			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"errors":["internal error"]}`))
+			})
+
+			err := client.DeleteTenantNamespace(ctx, "tenant-a")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to delete namespace"))
+		})
+
+		It("returns error on permission denied", func() {
+			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"errors":["permission denied"]}`))
+			})
+
+			err := client.DeleteTenantNamespace(ctx, "tenant-a")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to delete namespace"))
+		})
+
+		It("rejects invalid tenant names", func() {
+			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			})
+
+			err := client.DeleteTenantNamespace(ctx, "../escape")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid characters"))
+		})
+	})
+
 	Describe("isAlreadyExistsError", func() {
 		It("returns true for 'already exists' in error body", func() {
 			err := generateResponseError(http.StatusBadRequest, "namespace already exists")
@@ -432,6 +503,22 @@ var _ = Describe("VaultLifecycleClient", func() {
 
 		It("returns false for non-vault errors", func() {
 			Expect(isAlreadyExistsError(io.EOF)).To(BeFalse())
+		})
+	})
+
+	Describe("isNotFoundError", func() {
+		It("returns true for 404 status", func() {
+			err := generateResponseError(http.StatusNotFound, "no namespace")
+			Expect(isNotFoundError(err)).To(BeTrue())
+		})
+
+		It("returns false for non-404 status", func() {
+			err := generateResponseError(http.StatusInternalServerError, "not found")
+			Expect(isNotFoundError(err)).To(BeFalse())
+		})
+
+		It("returns false for non-vault errors", func() {
+			Expect(isNotFoundError(io.EOF)).To(BeFalse())
 		})
 	})
 })

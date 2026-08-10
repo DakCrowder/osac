@@ -349,6 +349,9 @@ func (t *task) delete(ctx context.Context) error {
 	// Delete from IDP
 	tenantName := t.tenant.GetStatus().GetIdpTenantName()
 	if tenantName == "" {
+		if err := t.deleteVaultNamespace(ctx); err != nil {
+			return err
+		}
 		t.removeFinalizer()
 		return nil
 	}
@@ -362,6 +365,10 @@ func (t *task) delete(ctx context.Context) error {
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("idp_name", tenantName),
 	)
+
+	if err := t.deleteVaultNamespace(ctx); err != nil {
+		return err
+	}
 
 	t.removeFinalizer()
 	return nil
@@ -463,6 +470,35 @@ func (t *task) ensureVaultNamespace(ctx context.Context) {
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),
 	)
+}
+
+// deleteVaultNamespace deletes the tenant's namespace from the secret store.
+// Unlike ensureVaultNamespace (best-effort), this is blocking — errors prevent
+// finalizer removal to avoid permanent namespace leaks.
+func (t *task) deleteVaultNamespace(ctx context.Context) error {
+	if t.r.vaultLifecycle == nil {
+		return nil
+	}
+	if t.tenant.GetStatus().GetVaultNamespace() == "" {
+		return nil
+	}
+
+	tenantName := t.tenant.GetStatus().GetVaultNamespace()
+	err := t.r.vaultLifecycle.DeleteTenantNamespace(ctx, tenantName)
+	if err != nil {
+		t.r.logger.ErrorContext(ctx, "Failed to delete vault namespace for tenant",
+			slog.String("tenant_id", t.tenant.GetId()),
+			slog.String("tenant_name", tenantName),
+			slog.Any("error", err),
+		)
+		return fmt.Errorf("failed to delete vault namespace: %w", err)
+	}
+
+	t.r.logger.DebugContext(ctx, "Vault namespace deleted for tenant",
+		slog.String("tenant_id", t.tenant.GetId()),
+		slog.String("tenant_name", tenantName),
+	)
+	return nil
 }
 
 const (

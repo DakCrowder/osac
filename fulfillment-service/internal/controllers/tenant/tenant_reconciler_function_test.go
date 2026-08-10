@@ -1934,3 +1934,215 @@ var _ = Describe("Vault namespace provisioning", func() {
 		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
 	})
 })
+
+var _ = Describe("Vault namespace cleanup during deletion", func() {
+	var (
+		ctx                context.Context
+		ctrl               *gomock.Controller
+		mockIDPClient      *idp.MockClientInterface
+		mockVaultClient    *vault.MockLifecycleClient
+		mockProjectsClient *MockProjectsClient
+		idpManager         *idp.TenantManager
+	)
+
+	BeforeEach(func() {
+		var err error
+		ctx = context.Background()
+		ctrl = gomock.NewController(GinkgoT())
+		mockIDPClient = idp.NewMockClientInterface(ctrl)
+		mockVaultClient = vault.NewMockLifecycleClient(ctrl)
+		mockProjectsClient = NewMockProjectsClient(ctrl)
+
+		idpManager, err = idp.NewTenantManager().
+			SetLogger(logger).
+			SetClient(mockIDPClient).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("deletes vault namespace during tenant deletion", func() {
+		reconciler := &function{
+			logger:         logger,
+			projectsClient: mockProjectsClient,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-vault-del",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "vault-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: timestamppb.Now(),
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName:  "vault-org",
+				VaultNamespace: "vault-org",
+			}.Build(),
+		}.Build()
+
+		mockProjectsClient.EXPECT().
+			List(gomock.Any(), gomock.Any()).
+			Return(privatev1.ProjectsListResponse_builder{Total: 0}.Build(), nil)
+
+		mockIDPClient.EXPECT().
+			DeleteTenant(gomock.Any(), "vault-org").
+			Return(nil)
+
+		mockVaultClient.EXPECT().
+			DeleteTenantNamespace(gomock.Any(), "vault-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("blocks deletion when vault namespace deletion fails", func() {
+		reconciler := &function{
+			logger:         logger,
+			projectsClient: mockProjectsClient,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-vault-fail",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "vault-fail-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: timestamppb.Now(),
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName:  "vault-fail-org",
+				VaultNamespace: "vault-fail-org",
+			}.Build(),
+		}.Build()
+
+		mockProjectsClient.EXPECT().
+			List(gomock.Any(), gomock.Any()).
+			Return(privatev1.ProjectsListResponse_builder{Total: 0}.Build(), nil)
+
+		mockIDPClient.EXPECT().
+			DeleteTenant(gomock.Any(), "vault-fail-org").
+			Return(nil)
+
+		mockVaultClient.EXPECT().
+			DeleteTenantNamespace(gomock.Any(), "vault-fail-org").
+			Return(fmt.Errorf("vault unavailable"))
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.delete(ctx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to delete vault namespace"))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+	})
+
+	It("skips vault deletion when vault_namespace is empty", func() {
+		reconciler := &function{
+			logger:         logger,
+			projectsClient: mockProjectsClient,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-no-vault-ns",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "no-vault-ns-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: timestamppb.Now(),
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "no-vault-ns-org",
+			}.Build(),
+		}.Build()
+
+		mockProjectsClient.EXPECT().
+			List(gomock.Any(), gomock.Any()).
+			Return(privatev1.ProjectsListResponse_builder{Total: 0}.Build(), nil)
+
+		mockIDPClient.EXPECT().
+			DeleteTenant(gomock.Any(), "no-vault-ns-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("skips vault deletion when vault lifecycle is nil", func() {
+		reconciler := &function{
+			logger:         logger,
+			projectsClient: mockProjectsClient,
+			idpManager:     idpManager,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-nil-vault",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "nil-vault-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: timestamppb.Now(),
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName:  "nil-vault-org",
+				VaultNamespace: "nil-vault-org",
+			}.Build(),
+		}.Build()
+
+		mockProjectsClient.EXPECT().
+			List(gomock.Any(), gomock.Any()).
+			Return(privatev1.ProjectsListResponse_builder{Total: 0}.Build(), nil)
+
+		mockIDPClient.EXPECT().
+			DeleteTenant(gomock.Any(), "nil-vault-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+
+	It("deletes vault namespace when idp_tenant_name is empty but vault_namespace is set", func() {
+		reconciler := &function{
+			logger:         logger,
+			projectsClient: mockProjectsClient,
+			idpManager:     idpManager,
+			vaultLifecycle: mockVaultClient,
+		}
+
+		tenant := privatev1.Tenant_builder{
+			Id: "org-vault-only",
+			Metadata: privatev1.Metadata_builder{
+				Name:              "vault-only-org",
+				Finalizers:        []string{finalizers.Controller},
+				DeletionTimestamp: timestamppb.Now(),
+			}.Build(),
+			Status: privatev1.TenantStatus_builder{
+				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
+				VaultNamespace: "vault-only-org",
+			}.Build(),
+		}.Build()
+
+		mockProjectsClient.EXPECT().
+			List(gomock.Any(), gomock.Any()).
+			Return(privatev1.ProjectsListResponse_builder{Total: 0}.Build(), nil)
+
+		mockVaultClient.EXPECT().
+			DeleteTenantNamespace(gomock.Any(), "vault-only-org").
+			Return(nil)
+
+		t := &task{r: reconciler, tenant: tenant}
+		err := t.delete(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+	})
+})
