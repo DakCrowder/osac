@@ -42,26 +42,26 @@ type LifecycleClient interface {
 }
 
 type VaultLifecycleClientBuilder struct {
-	logger               *slog.Logger
-	address              string
-	tokenSource          VaultTokenSource
-	parentNamespace      string
-	kvMountPath          string
+	logger            *slog.Logger
+	address           string
+	tokenSource       VaultTokenSource
+	parentNamespace   string
+	kvMountPath       string
 	keycloakIssuerURL string
-	keycloakAudience     string
-	caPool               *x509.CertPool
-	caPEM                string
+	keycloakAudience  string
+	caPool            *x509.CertPool
+	caPEM             string
 }
 
 type VaultLifecycleClient struct {
-	logger               *slog.Logger
-	client               *vaultapi.Client
-	tokenSource          VaultTokenSource
-	parentNamespace      string
-	kvMountPath          string
+	logger            *slog.Logger
+	client            *vaultapi.Client
+	tokenSource       VaultTokenSource
+	parentNamespace   string
+	kvMountPath       string
 	keycloakIssuerURL string
-	keycloakAudience     string
-	caPEM                string
+	keycloakAudience  string
+	caPEM             string
 }
 
 func NewVaultLifecycleClient() *VaultLifecycleClientBuilder {
@@ -162,14 +162,14 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 	}
 
 	result = &VaultLifecycleClient{
-		logger:               b.logger,
-		client:               client,
-		tokenSource:          b.tokenSource,
-		parentNamespace:      b.parentNamespace,
-		kvMountPath:          b.kvMountPath,
+		logger:            b.logger,
+		client:            client,
+		tokenSource:       b.tokenSource,
+		parentNamespace:   b.parentNamespace,
+		kvMountPath:       b.kvMountPath,
 		keycloakIssuerURL: b.keycloakIssuerURL,
-		keycloakAudience:     b.keycloakAudience,
-		caPEM:                b.caPEM,
+		keycloakAudience:  b.keycloakAudience,
+		caPEM:             b.caPEM,
 	}
 	return
 }

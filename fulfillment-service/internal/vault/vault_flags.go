@@ -33,7 +33,7 @@ type BaseConfig struct {
 type LifecycleConfig struct {
 	Role                     string
 	MountPath                string
-	KeycloakIssuerURL     string
+	KeycloakIssuerURL        string
 	KeycloakAudience         string
 	KeycloakTokenEndpoint    string
 	KeycloakClientID         string
@@ -172,7 +172,7 @@ func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
 	return LifecycleConfig{
 		Role:                     role,
 		MountPath:                mountPath,
-		KeycloakIssuerURL:     issuerURL,
+		KeycloakIssuerURL:        issuerURL,
 		KeycloakAudience:         audience,
 		KeycloakTokenEndpoint:    tokenEndpoint,
 		KeycloakClientID:         clientID,
@@ -221,7 +221,7 @@ const (
 
 	lifecycleRoleFlagName            = "vault-lifecycle-role"
 	lifecycleMountPathFlagName       = "vault-lifecycle-mount-path"
-	keycloakIssuerURLFlagName     = "vault-keycloak-issuer-url"
+	keycloakIssuerURLFlagName        = "vault-keycloak-issuer-url"
 	keycloakAudienceFlagName         = "vault-keycloak-audience"
 	keycloakTokenEndpointFlagName    = "vault-keycloak-token-endpoint"
 	keycloakClientIDFlagName         = "vault-keycloak-client-id"

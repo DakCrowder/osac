@@ -62,7 +62,7 @@ var _ = Describe("Vault flags", func() {
 		It("returns nil when all required fields are set", func() {
 			cfg := LifecycleConfig{
 				Role:                     "lifecycle",
-				KeycloakIssuerURL:     "https://kc/realms/osac",
+				KeycloakIssuerURL:        "https://kc/realms/osac",
 				KeycloakTokenEndpoint:    "https://kc/realms/osac/protocol/openid-connect/token",
 				KeycloakClientID:         "vault-client",
 				KeycloakClientSecretFile: "/etc/secret",
