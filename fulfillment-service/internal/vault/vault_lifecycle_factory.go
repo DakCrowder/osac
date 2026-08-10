@@ -72,16 +72,26 @@ func NewLifecycleClientFromConfig(
 		slog.String("namespace", base.Namespace),
 	)
 
-	client, err := NewVaultLifecycleClient().
+	builder := NewVaultLifecycleClient().
 		SetLogger(logger).
 		SetAddress(base.Endpoint).
 		SetTokenSource(authenticator).
 		SetParentNamespace(base.Namespace).
 		SetKVMountPath(base.KVMountPath).
-		SetKeycloakDiscoveryURL(lifecycle.KeycloakDiscoveryURL).
+		SetKeycloakIssuerURL(lifecycle.KeycloakIssuerURL).
 		SetKeycloakAudience(lifecycle.KeycloakAudience).
-		SetCaPool(caPool).
-		Build()
+		SetCaPool(caPool)
+	if base.CaCertFile != "" {
+		caPEM, readErr := readTrimmedFile(base.CaCertFile)
+		if readErr != nil {
+			return nil, fmt.Errorf(
+				"failed to read vault CA cert from file '%s': %w",
+				base.CaCertFile, readErr,
+			)
+		}
+		builder.SetCaPEM(caPEM)
+	}
+	client, err := builder.Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vault lifecycle client: %w", err)
 	}

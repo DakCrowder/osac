@@ -47,9 +47,10 @@ type VaultLifecycleClientBuilder struct {
 	tokenSource          VaultTokenSource
 	parentNamespace      string
 	kvMountPath          string
-	keycloakDiscoveryURL string
+	keycloakIssuerURL string
 	keycloakAudience     string
 	caPool               *x509.CertPool
+	caPEM                string
 }
 
 type VaultLifecycleClient struct {
@@ -58,8 +59,9 @@ type VaultLifecycleClient struct {
 	tokenSource          VaultTokenSource
 	parentNamespace      string
 	kvMountPath          string
-	keycloakDiscoveryURL string
+	keycloakIssuerURL string
 	keycloakAudience     string
+	caPEM                string
 }
 
 func NewVaultLifecycleClient() *VaultLifecycleClientBuilder {
@@ -94,8 +96,8 @@ func (b *VaultLifecycleClientBuilder) SetKVMountPath(value string) *VaultLifecyc
 	return b
 }
 
-func (b *VaultLifecycleClientBuilder) SetKeycloakDiscoveryURL(value string) *VaultLifecycleClientBuilder {
-	b.keycloakDiscoveryURL = value
+func (b *VaultLifecycleClientBuilder) SetKeycloakIssuerURL(value string) *VaultLifecycleClientBuilder {
+	b.keycloakIssuerURL = value
 	return b
 }
 
@@ -106,6 +108,11 @@ func (b *VaultLifecycleClientBuilder) SetKeycloakAudience(value string) *VaultLi
 
 func (b *VaultLifecycleClientBuilder) SetCaPool(value *x509.CertPool) *VaultLifecycleClientBuilder {
 	b.caPool = value
+	return b
+}
+
+func (b *VaultLifecycleClientBuilder) SetCaPEM(value string) *VaultLifecycleClientBuilder {
+	b.caPEM = value
 	return b
 }
 
@@ -126,8 +133,8 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 		err = errors.New("parent namespace is mandatory")
 		return
 	}
-	if b.keycloakDiscoveryURL == "" {
-		err = errors.New("keycloak discovery URL is mandatory")
+	if b.keycloakIssuerURL == "" {
+		err = errors.New("keycloak issuer URL is mandatory")
 		return
 	}
 	if err = validatePathComponent(b.kvMountPath, "KV mount path"); err != nil {
@@ -160,8 +167,9 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 		tokenSource:          b.tokenSource,
 		parentNamespace:      b.parentNamespace,
 		kvMountPath:          b.kvMountPath,
-		keycloakDiscoveryURL: b.keycloakDiscoveryURL,
+		keycloakIssuerURL: b.keycloakIssuerURL,
 		keycloakAudience:     b.keycloakAudience,
+		caPEM:                b.caPEM,
 	}
 	return
 }
@@ -265,10 +273,14 @@ func (c *VaultLifecycleClient) enableJWTAuth(ctx context.Context, client *vaulta
 
 func (c *VaultLifecycleClient) configureJWTAuth(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
-	_, err := client.Logical().WriteWithContext(ctx, "auth/jwt/config", map[string]any{
-		"oidc_discovery_url": c.keycloakDiscoveryURL,
+	config := map[string]any{
+		"oidc_discovery_url": c.keycloakIssuerURL,
 		"default_role":       "tenant-access",
-	})
+	}
+	if c.caPEM != "" {
+		config["oidc_discovery_ca_pem"] = c.caPEM
+	}
+	_, err := client.Logical().WriteWithContext(ctx, "auth/jwt/config", config)
 	if err != nil {
 		return fmt.Errorf("failed to configure JWT auth for tenant %q: %w", tenantName, err)
 	}

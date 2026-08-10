@@ -173,7 +173,7 @@ spec:
         - --vault-keycloak-token-endpoint={{ .Values.vault.keycloakTokenEndpoint }}
         - --vault-keycloak-client-id={{ .Values.vault.keycloakClientId }}
         - --vault-keycloak-client-secret-file=/etc/fulfillment-controller/vault/client-secret
-        - --vault-keycloak-discovery-url={{ .Values.vault.keycloakDiscoveryUrl }}
+        - --vault-keycloak-issuer-url={{ .Values.vault.keycloakIssuerUrl }}
         - --vault-keycloak-audience={{ .Values.vault.keycloakAudience }}
         {{ if .Values.vault.caCertFile }}
         - --vault-ca-cert-file={{ .Values.vault.caCertFile }}

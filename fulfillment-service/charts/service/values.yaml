@@ -210,8 +210,9 @@ vault:
   # Keycloak client identifier used by the controller for Vault authentication.
   keycloakClientId: ""
 
-  # Keycloak OIDC discovery URL used to configure JWT auth in tenant Vault namespaces.
-  keycloakDiscoveryUrl: ""
+  # Keycloak OIDC issuer URL (e.g. https://keycloak/realms/osac) used to configure
+  # JWT auth in tenant Vault namespaces.
+  keycloakIssuerUrl: ""
 
   # Expected audience claim in Keycloak JWTs for Vault JWT auth role configuration.
   keycloakAudience: "osac-api"

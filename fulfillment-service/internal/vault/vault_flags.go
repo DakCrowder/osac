@@ -33,7 +33,7 @@ type BaseConfig struct {
 type LifecycleConfig struct {
 	Role                     string
 	MountPath                string
-	KeycloakDiscoveryURL     string
+	KeycloakIssuerURL     string
 	KeycloakAudience         string
 	KeycloakTokenEndpoint    string
 	KeycloakClientID         string
@@ -78,9 +78,9 @@ func AddLifecycleFlags(flags *pflag.FlagSet) {
 		lifecycleMountPathFlagHelp,
 	)
 	_ = flags.String(
-		keycloakDiscoveryURLFlagName,
+		keycloakIssuerURLFlagName,
 		"",
-		keycloakDiscoveryURLFlagHelp,
+		keycloakIssuerURLFlagHelp,
 	)
 	_ = flags.String(
 		keycloakAudienceFlagName,
@@ -148,7 +148,7 @@ func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
 	if err != nil {
 		return LifecycleConfig{}, err
 	}
-	discoveryURL, err := getString(keycloakDiscoveryURLFlagName)
+	issuerURL, err := getString(keycloakIssuerURLFlagName)
 	if err != nil {
 		return LifecycleConfig{}, err
 	}
@@ -172,7 +172,7 @@ func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
 	return LifecycleConfig{
 		Role:                     role,
 		MountPath:                mountPath,
-		KeycloakDiscoveryURL:     discoveryURL,
+		KeycloakIssuerURL:     issuerURL,
 		KeycloakAudience:         audience,
 		KeycloakTokenEndpoint:    tokenEndpoint,
 		KeycloakClientID:         clientID,
@@ -181,10 +181,10 @@ func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
 }
 
 func ValidateLifecycleConfig(cfg LifecycleConfig) error {
-	if cfg.KeycloakDiscoveryURL == "" {
+	if cfg.KeycloakIssuerURL == "" {
 		return fmt.Errorf(
 			"flag '--%s' is required when '--%s' is set",
-			keycloakDiscoveryURLFlagName, endpointFlagName,
+			keycloakIssuerURLFlagName, endpointFlagName,
 		)
 	}
 	if cfg.Role == "" {
@@ -221,7 +221,7 @@ const (
 
 	lifecycleRoleFlagName            = "vault-lifecycle-role"
 	lifecycleMountPathFlagName       = "vault-lifecycle-mount-path"
-	keycloakDiscoveryURLFlagName     = "vault-keycloak-discovery-url"
+	keycloakIssuerURLFlagName     = "vault-keycloak-issuer-url"
 	keycloakAudienceFlagName         = "vault-keycloak-audience"
 	keycloakTokenEndpointFlagName    = "vault-keycloak-token-endpoint"
 	keycloakClientIDFlagName         = "vault-keycloak-client-id"
@@ -252,9 +252,9 @@ _PATH_ - Auth method mount path in the Vault parent namespace
 used for lifecycle JWT authentication.
 `
 
-const keycloakDiscoveryURLFlagHelp = `
-_URL_ - Keycloak OIDC discovery URL used to configure JWT auth
-in tenant Vault namespaces.
+const keycloakIssuerURLFlagHelp = `
+_URL_ - Keycloak OIDC issuer URL (e.g. https://keycloak/realms/osac)
+used to configure JWT auth in tenant Vault namespaces.
 `
 
 const keycloakAudienceFlagHelp = `
