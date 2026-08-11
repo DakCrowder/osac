@@ -123,7 +123,7 @@ func (s *PrivateSecretsServer) redact(object *privatev1.Secret) *privatev1.Secre
 
 // List fetches a list of secret objects from postgres.
 // Secret data itself should never be included in the response, and users should use Get
-// to fetch individual secrets with populated status.resolved_data.
+// to fetch individual secrets with populated data.
 func (s *PrivateSecretsServer) List(ctx context.Context,
 	request *privatev1.SecretsListRequest) (response *privatev1.SecretsListResponse, err error) {
 	err = s.generic.List(ctx, request, &response)

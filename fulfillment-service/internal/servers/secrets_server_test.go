@@ -220,7 +220,7 @@ var _ = Describe("Secrets Server", func() {
 	})
 
 	Describe("List", func() {
-		It("strips spec.data and status.resolved_data from all items", func() {
+		It("strips data from all items", func() {
 			mock := &mockPrivateSecretsServer{
 				listFunc: func(_ context.Context,
 					_ *privatev1.SecretsListRequest) (*privatev1.SecretsListResponse, error) {
@@ -283,7 +283,7 @@ var _ = Describe("Secrets Server", func() {
 	})
 
 	Describe("Get", func() {
-		It("returns data and resolved_data in response", func() {
+		It("returns data in response", func() {
 			mock := &mockPrivateSecretsServer{
 				getFunc: func(_ context.Context,
 					_ *privatev1.SecretsGetRequest) (*privatev1.SecretsGetResponse, error) {
