@@ -421,8 +421,8 @@ func (t *Tool) Setup(ctx context.Context) error {
 		return err
 	}
 
-	// Wait for vault namespaces to be provisioned by the controller:
-	err = t.waitForVaultNamespaces(ctx)
+	// Wait for vault ready conditions to be satisfied by the controller:
+	err = t.waitForVaultReady(ctx)
 	if err != nil {
 		return err
 	}
@@ -1849,9 +1849,8 @@ func (t *Tool) createTenants(ctx context.Context) error {
 	return nil
 }
 
-// waitForVaultNamespaces waits for all test tenants to have their vault namespaces provisioned by the controller.
-func (t *Tool) waitForVaultNamespaces(ctx context.Context) error {
-	t.logger.InfoContext(ctx, "Waiting for vault namespaces to be provisioned")
+func (t *Tool) waitForVaultReady(ctx context.Context) error {
+	t.logger.InfoContext(ctx, "Waiting for vault ready conditions")
 
 	uniqueTenants := make(map[string]bool)
 	uniqueTenants[usersGroup] = true
@@ -1879,18 +1878,23 @@ func (t *Tool) waitForVaultNamespaces(ctx context.Context) error {
 			if len(resp.GetItems()) == 0 {
 				return fmt.Errorf("tenant %q not found", tenantName)
 			}
-			if resp.GetItems()[0].GetStatus().GetVaultNamespace() == "" {
-				return fmt.Errorf("tenant %q vault namespace not yet provisioned", tenantName)
+			for _, c := range resp.GetItems()[0].GetStatus().GetConditions() {
+				if c.GetType() == privatev1.TenantConditionType_TENANT_CONDITION_TYPE_VAULT_READY {
+					if c.GetStatus() == privatev1.ConditionStatus_CONDITION_STATUS_TRUE {
+						return nil
+					}
+					return fmt.Errorf("tenant %q vault not yet ready (reason: %s)", tenantName, c.GetReason())
+				}
 			}
-			return nil
+			return fmt.Errorf("tenant %q vault ready condition not yet present", tenantName)
 		}, backoff.WithContext(backOff, ctx))
 		if err != nil {
-			return fmt.Errorf("timed out waiting for vault namespace for tenant %q: %w", tenant, err)
+			return fmt.Errorf("timed out waiting for vault ready for tenant %q: %w", tenant, err)
 		}
-		t.logger.DebugContext(ctx, "Vault namespace ready for tenant", slog.String("tenant", tenant))
+		t.logger.DebugContext(ctx, "Vault ready for tenant", slog.String("tenant", tenant))
 	}
 
-	t.logger.InfoContext(ctx, "All vault namespaces provisioned")
+	t.logger.InfoContext(ctx, "All vault ready conditions satisfied")
 	return nil
 }
 

@@ -1714,6 +1714,17 @@ var _ = Describe("Vault namespace provisioning", func() {
 		idpManager      *idp.TenantManager
 	)
 
+	condType := privatev1.TenantConditionType_TENANT_CONDITION_TYPE_VAULT_READY
+
+	findCondition := func(tenant *privatev1.Tenant) *privatev1.TenantCondition {
+		for _, c := range tenant.GetStatus().GetConditions() {
+			if c.GetType() == condType {
+				return c
+			}
+		}
+		return nil
+	}
+
 	BeforeEach(func() {
 		var err error
 		ctx = context.Background()
@@ -1768,7 +1779,10 @@ var _ = Describe("Vault namespace provisioning", func() {
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tenant.GetStatus().GetState()).To(Equal(privatev1.TenantState_TENANT_STATE_SYNCED))
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("test-org"))
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_TRUE))
+		Expect(cond.GetReason()).To(Equal("NamespaceReady"))
 	})
 
 	It("returns error when vault provisioning fails", func() {
@@ -1812,7 +1826,9 @@ var _ = Describe("Vault namespace provisioning", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("vault unavailable"))
 		Expect(tenant.GetStatus().GetState()).To(Equal(privatev1.TenantState_TENANT_STATE_SYNCED))
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("fail-org"))
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_FALSE))
 	})
 
 	It("skips vault provisioning when already provisioned", func() {
@@ -1830,9 +1846,15 @@ var _ = Describe("Vault namespace provisioning", func() {
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
-				IdpTenantName:  "already-org",
-				VaultNamespace: "already-org",
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "already-org",
+				Conditions: []*privatev1.TenantCondition{
+					privatev1.TenantCondition_builder{
+						Type:   condType,
+						Status: privatev1.ConditionStatus_CONDITION_STATUS_TRUE,
+						Reason: new("NamespaceReady"),
+					}.Build(),
+				},
 			}.Build(),
 		}.Build()
 
@@ -1843,7 +1865,9 @@ var _ = Describe("Vault namespace provisioning", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("already-org"))
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_TRUE))
 	})
 
 	It("skips vault provisioning when vault lifecycle is nil", func() {
@@ -1872,10 +1896,12 @@ var _ = Describe("Vault namespace provisioning", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_FALSE))
 	})
 
-	It("retries vault provisioning for synced tenant with empty vault_namespace", func() {
+	It("retries vault provisioning when condition is not yet true", func() {
 		reconciler := &function{
 			logger:         logger,
 			idpManager:     idpManager,
@@ -1906,7 +1932,10 @@ var _ = Describe("Vault namespace provisioning", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(Equal("retry-org"))
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_TRUE))
+		Expect(cond.GetReason()).To(Equal("NamespaceReady"))
 	})
 
 	It("skips vault provisioning for failed tenants", func() {
@@ -1932,7 +1961,9 @@ var _ = Describe("Vault namespace provisioning", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_FALSE))
 	})
 
 	It("skips vault provisioning for builtin tenants", func() {
@@ -1962,7 +1993,9 @@ var _ = Describe("Vault namespace provisioning", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
+		cond := findCondition(tenant)
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.GetStatus()).To(Equal(privatev1.ConditionStatus_CONDITION_STATUS_FALSE))
 	})
 })
 
@@ -2007,9 +2040,8 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
-				IdpTenantName:  "vault-org",
-				VaultNamespace: "vault-org",
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "vault-org",
 			}.Build(),
 		}.Build()
 
@@ -2029,7 +2061,6 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
 	})
 
 	It("blocks deletion when vault namespace deletion fails", func() {
@@ -2048,9 +2079,8 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
-				IdpTenantName:  "vault-fail-org",
-				VaultNamespace: "vault-fail-org",
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "vault-fail-org",
 			}.Build(),
 		}.Build()
 
@@ -2073,7 +2103,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
 	})
 
-	It("skips vault deletion when vault_namespace is empty", func() {
+	It("performs idempotent vault deletion even when namespace was never provisioned", func() {
 		reconciler := &function{
 			logger:         logger,
 			projectsClient: mockProjectsClient,
@@ -2102,6 +2132,10 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			DeleteTenant(gomock.Any(), "no-vault-ns-org").
 			Return(nil)
 
+		mockVaultClient.EXPECT().
+			DeleteTenantNamespace(gomock.Any(), "no-vault-ns-org").
+			Return(nil)
+
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
@@ -2123,9 +2157,8 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
-				IdpTenantName:  "nil-vault-org",
-				VaultNamespace: "nil-vault-org",
+				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
+				IdpTenantName: "nil-vault-org",
 			}.Build(),
 		}.Build()
 
@@ -2143,7 +2176,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
 	})
 
-	It("deletes vault namespace when idp_tenant_name is empty but vault_namespace is set", func() {
+	It("deletes vault namespace when idp_tenant_name is empty", func() {
 		reconciler := &function{
 			logger:         logger,
 			projectsClient: mockProjectsClient,
@@ -2159,8 +2192,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_SYNCED,
-				VaultNamespace: "vault-only-org",
+				State: privatev1.TenantState_TENANT_STATE_SYNCED,
 			}.Build(),
 		}.Build()
 
@@ -2194,8 +2226,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
-				State:          privatev1.TenantState_TENANT_STATE_FAILED,
-				VaultNamespace: "failed-org",
+				State: privatev1.TenantState_TENANT_STATE_FAILED,
 			}.Build(),
 		}.Build()
 
@@ -2211,6 +2242,5 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
-		Expect(tenant.GetStatus().GetVaultNamespace()).To(BeEmpty())
 	})
 })

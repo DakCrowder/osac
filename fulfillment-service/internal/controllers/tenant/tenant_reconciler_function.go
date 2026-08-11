@@ -398,6 +398,7 @@ func (t *task) countRemainingProjects(ctx context.Context) (int32, error) {
 
 var tenantConditionTypes = []privatev1.TenantConditionType{
 	privatev1.TenantConditionType_TENANT_CONDITION_TYPE_DEFAULT_NETWORKING_READY,
+	privatev1.TenantConditionType_TENANT_CONDITION_TYPE_VAULT_READY,
 }
 
 // setConditionDefaults ensures every known condition type has an entry in the tenant's conditions list.
@@ -451,22 +452,29 @@ func (t *task) updateCondition(conditionType privatev1.TenantConditionType, stat
 	t.tenant.GetStatus().SetConditions(conditions)
 }
 
-// ensureVaultNamespace creates the tenant's namespace in the secret store.
-// This operation is idempotent, so retries after partial failures are safe.
+func (t *task) isConditionTrue(conditionType privatev1.TenantConditionType) bool {
+	for _, c := range t.tenant.GetStatus().GetConditions() {
+		if c.GetType() == conditionType {
+			return c.GetStatus() == privatev1.ConditionStatus_CONDITION_STATUS_TRUE
+		}
+	}
+	return false
+}
+
 func (t *task) ensureVaultNamespace(ctx context.Context) error {
+	condType := privatev1.TenantConditionType_TENANT_CONDITION_TYPE_VAULT_READY
+
 	if t.r.vaultLifecycle == nil {
 		return nil
 	}
 	if t.isBuiltin() {
 		return nil
 	}
-	if t.tenant.GetStatus().GetVaultNamespace() != "" {
+	if t.isConditionTrue(condType) {
 		return nil
 	}
 
 	tenantName := t.tenant.GetMetadata().GetName()
-	t.tenant.GetStatus().SetVaultNamespace(tenantName)
-
 	err := t.r.vaultLifecycle.EnsureTenantNamespace(ctx, tenantName)
 	if err != nil {
 		t.r.logger.ErrorContext(ctx, "Failed to provision vault namespace for tenant",
@@ -477,6 +485,9 @@ func (t *task) ensureVaultNamespace(ctx context.Context) error {
 		return fmt.Errorf("failed to provision vault namespace: %w", err)
 	}
 
+	t.updateCondition(condType, privatev1.ConditionStatus_CONDITION_STATUS_TRUE,
+		"NamespaceReady", "Vault namespace provisioned successfully")
+
 	t.r.logger.DebugContext(ctx, "Vault namespace provisioned for tenant",
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),
@@ -484,17 +495,15 @@ func (t *task) ensureVaultNamespace(ctx context.Context) error {
 	return nil
 }
 
-// deleteVaultNamespace deletes the tenant's namespace from the secret store.
-// This operation is blocking — errors prevent finalizer removal
 func (t *task) deleteVaultNamespace(ctx context.Context) error {
 	if t.r.vaultLifecycle == nil {
 		return nil
 	}
-	if t.tenant.GetStatus().GetVaultNamespace() == "" {
+	if t.isBuiltin() {
 		return nil
 	}
 
-	tenantName := t.tenant.GetStatus().GetVaultNamespace()
+	tenantName := t.tenant.GetMetadata().GetName()
 	err := t.r.vaultLifecycle.DeleteTenantNamespace(ctx, tenantName)
 	if err != nil {
 		t.r.logger.ErrorContext(ctx, "Failed to delete vault namespace for tenant",
@@ -505,7 +514,6 @@ func (t *task) deleteVaultNamespace(ctx context.Context) error {
 		return fmt.Errorf("failed to delete vault namespace: %w", err)
 	}
 
-	t.tenant.GetStatus().SetVaultNamespace("")
 	t.r.logger.DebugContext(ctx, "Vault namespace deleted for tenant",
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("tenant_name", tenantName),
