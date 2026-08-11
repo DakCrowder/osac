@@ -243,10 +243,6 @@ func (t *task) syncToIDP(ctx context.Context) error {
 		slog.String("tenant_name", tenantName),
 	)
 
-	if err := t.ensureVaultNamespace(ctx); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -363,6 +359,10 @@ func (t *task) delete(ctx context.Context) error {
 		return nil
 	}
 
+	if err := t.deleteVaultNamespace(ctx); err != nil {
+		return err
+	}
+
 	err = t.r.idpManager.DeleteTenant(ctx, tenantName)
 	if err != nil {
 		return fmt.Errorf("failed to delete IDP tenant: %w", err)
@@ -372,10 +372,6 @@ func (t *task) delete(ctx context.Context) error {
 		slog.String("tenant_id", t.tenant.GetId()),
 		slog.String("idp_name", tenantName),
 	)
-
-	if err := t.deleteVaultNamespace(ctx); err != nil {
-		return err
-	}
 
 	t.removeFinalizer()
 	return nil
