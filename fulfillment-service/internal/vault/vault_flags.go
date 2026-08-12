@@ -19,25 +19,33 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// BaseConfig holds the vault connection settings shared by all commands
-// that interact with Vault.
+// BaseConfig holds the vault connection settings shared by all service configurations
+// that interact with Vault
 type BaseConfig struct {
-	Endpoint    string
-	Namespace   string
-	KVMountPath string
-	CaCertFile  string
+	Endpoint                 string
+	Namespace                string
+	KVMountPath              string
+	CaCertFile               string
+	KeycloakTokenEndpoint    string
+	KeycloakClientID         string
+	KeycloakClientSecretFile string
 }
 
 // LifecycleConfig holds the additional settings needed for tenant
 // namespace lifecycle management in Vault.
 type LifecycleConfig struct {
-	Role                     string
-	MountPath                string
-	KeycloakIssuerURL        string
-	KeycloakAudience         string
-	KeycloakTokenEndpoint    string
-	KeycloakClientID         string
-	KeycloakClientSecretFile string
+	Role              string
+	MountPath         string
+	KeycloakIssuerURL string
+	KeycloakAudience  string
+}
+
+func getString(flags *pflag.FlagSet, name string) (string, error) {
+	v, err := flags.GetString(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to read flag '--%s': %w", name, err)
+	}
+	return v, nil
 }
 
 // AddBaseFlags registers shared vault flags among all clients/callers.
@@ -61,6 +69,21 @@ func AddBaseFlags(flags *pflag.FlagSet) {
 		caCertFileFlagName,
 		"",
 		caCertFileFlagHelp,
+	)
+	_ = flags.String(
+		keycloakTokenEndpointFlagName,
+		"",
+		keycloakTokenEndpointFlagHelp,
+	)
+	_ = flags.String(
+		keycloakClientIDFlagName,
+		"",
+		keycloakClientIDFlagHelp,
+	)
+	_ = flags.String(
+		keycloakClientSecretFileFlagName,
+		"",
+		keycloakClientSecretFileFlagHelp,
 	)
 }
 
@@ -87,112 +110,79 @@ func AddLifecycleFlags(flags *pflag.FlagSet) {
 		"osac-api",
 		keycloakAudienceFlagHelp,
 	)
-	_ = flags.String(
-		keycloakTokenEndpointFlagName,
-		"",
-		keycloakTokenEndpointFlagHelp,
-	)
-	_ = flags.String(
-		keycloakClientIDFlagName,
-		"",
-		keycloakClientIDFlagHelp,
-	)
-	_ = flags.String(
-		keycloakClientSecretFileFlagName,
-		"",
-		keycloakClientSecretFileFlagHelp,
-	)
 }
 
 // BaseConfigFromFlags reads the base vault flags and returns a populated BaseConfig.
 func BaseConfigFromFlags(flags *pflag.FlagSet) (BaseConfig, error) {
-	endpoint, err := flags.GetString(endpointFlagName)
+	endpoint, err := getString(flags, endpointFlagName)
 	if err != nil {
-		return BaseConfig{}, fmt.Errorf("failed to read flag '--%s': %w", endpointFlagName, err)
+		return BaseConfig{}, err
 	}
-	namespace, err := flags.GetString(namespaceFlagName)
+	namespace, err := getString(flags, namespaceFlagName)
 	if err != nil {
-		return BaseConfig{}, fmt.Errorf("failed to read flag '--%s': %w", namespaceFlagName, err)
+		return BaseConfig{}, err
 	}
-	kvMountPath, err := flags.GetString(kvMountPathFlagName)
+	kvMountPath, err := getString(flags, kvMountPathFlagName)
 	if err != nil {
-		return BaseConfig{}, fmt.Errorf("failed to read flag '--%s': %w", kvMountPathFlagName, err)
+		return BaseConfig{}, err
 	}
-	caCertFile, err := flags.GetString(caCertFileFlagName)
+	caCertFile, err := getString(flags, caCertFileFlagName)
 	if err != nil {
-		return BaseConfig{}, fmt.Errorf("failed to read flag '--%s': %w", caCertFileFlagName, err)
+		return BaseConfig{}, err
+	}
+	tokenEndpoint, err := getString(flags, keycloakTokenEndpointFlagName)
+	if err != nil {
+		return BaseConfig{}, err
+	}
+	clientID, err := getString(flags, keycloakClientIDFlagName)
+	if err != nil {
+		return BaseConfig{}, err
+	}
+	clientSecretFile, err := getString(flags, keycloakClientSecretFileFlagName)
+	if err != nil {
+		return BaseConfig{}, err
 	}
 	return BaseConfig{
-		Endpoint:    endpoint,
-		Namespace:   namespace,
-		KVMountPath: kvMountPath,
-		CaCertFile:  caCertFile,
-	}, nil
-}
-
-// LifecycleConfigFromFlags reads the lifecycle vault flags and returns a populated LifecycleConfig.
-func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
-	getString := func(name string) (string, error) {
-		v, err := flags.GetString(name)
-		if err != nil {
-			return "", fmt.Errorf("failed to read flag '--%s': %w", name, err)
-		}
-		return v, nil
-	}
-
-	role, err := getString(lifecycleRoleFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	mountPath, err := getString(lifecycleMountPathFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	issuerURL, err := getString(keycloakIssuerURLFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	audience, err := getString(keycloakAudienceFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	tokenEndpoint, err := getString(keycloakTokenEndpointFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	clientID, err := getString(keycloakClientIDFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-	clientSecretFile, err := getString(keycloakClientSecretFileFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
-
-	return LifecycleConfig{
-		Role:                     role,
-		MountPath:                mountPath,
-		KeycloakIssuerURL:        issuerURL,
-		KeycloakAudience:         audience,
+		Endpoint:                 endpoint,
+		Namespace:                namespace,
+		KVMountPath:              kvMountPath,
+		CaCertFile:               caCertFile,
 		KeycloakTokenEndpoint:    tokenEndpoint,
 		KeycloakClientID:         clientID,
 		KeycloakClientSecretFile: clientSecretFile,
 	}, nil
 }
 
-func ValidateLifecycleConfig(cfg LifecycleConfig) error {
-	if cfg.KeycloakIssuerURL == "" {
-		return fmt.Errorf(
-			"flag '--%s' is required when '--%s' is set",
-			keycloakIssuerURLFlagName, endpointFlagName,
-		)
+// LifecycleConfigFromFlags reads the lifecycle vault flags and returns a populated LifecycleConfig.
+func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
+	role, err := getString(flags, lifecycleRoleFlagName)
+	if err != nil {
+		return LifecycleConfig{}, err
 	}
-	if cfg.Role == "" {
-		return fmt.Errorf(
-			"flag '--%s' is required when '--%s' is set",
-			lifecycleRoleFlagName, endpointFlagName,
-		)
+	mountPath, err := getString(flags, lifecycleMountPathFlagName)
+	if err != nil {
+		return LifecycleConfig{}, err
 	}
+	issuerURL, err := getString(flags, keycloakIssuerURLFlagName)
+	if err != nil {
+		return LifecycleConfig{}, err
+	}
+	audience, err := getString(flags, keycloakAudienceFlagName)
+	if err != nil {
+		return LifecycleConfig{}, err
+	}
+
+	return LifecycleConfig{
+		Role:              role,
+		MountPath:         mountPath,
+		KeycloakIssuerURL: issuerURL,
+		KeycloakAudience:  audience,
+	}, nil
+}
+
+// ValidateBaseKeycloakConfig checks that the Keycloak client credential
+// fields are set.
+func ValidateBaseKeycloakConfig(cfg BaseConfig) error {
 	if cfg.KeycloakTokenEndpoint == "" {
 		return fmt.Errorf(
 			"flag '--%s' is required when '--%s' is set",
@@ -209,6 +199,22 @@ func ValidateLifecycleConfig(cfg LifecycleConfig) error {
 		return fmt.Errorf(
 			"flag '--%s' is required when '--%s' is set",
 			keycloakClientSecretFileFlagName, endpointFlagName,
+		)
+	}
+	return nil
+}
+
+func ValidateLifecycleConfig(cfg LifecycleConfig) error {
+	if cfg.KeycloakIssuerURL == "" {
+		return fmt.Errorf(
+			"flag '--%s' is required when '--%s' is set",
+			keycloakIssuerURLFlagName, endpointFlagName,
+		)
+	}
+	if cfg.Role == "" {
+		return fmt.Errorf(
+			"flag '--%s' is required when '--%s' is set",
+			lifecycleRoleFlagName, endpointFlagName,
 		)
 	}
 	return nil
@@ -263,18 +269,17 @@ JWT auth role configuration.
 `
 
 const keycloakTokenEndpointFlagHelp = `
-_URL_ - Keycloak token endpoint URL used by the controller to
-obtain JWTs for Vault authentication via client credentials flow.
-`
-
-const keycloakClientIDFlagHelp = `
-_ID_ - Keycloak client identifier used by the controller for
+_URL_ - Keycloak token endpoint URL used to obtain JWTs for
 Vault authentication.
 `
 
+const keycloakClientIDFlagHelp = `
+_ID_ - Keycloak client identifier used for Vault authentication.
+`
+
 const keycloakClientSecretFileFlagHelp = `
-_FILE_ - File containing the Keycloak client secret used by the
-controller for Vault authentication.
+_FILE_ - File containing the Keycloak client secret used for
+Vault authentication.
 `
 
 const caCertFileFlagHelp = `

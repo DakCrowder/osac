@@ -28,7 +28,7 @@ import (
 
 const (
 	TenantAuthMountPath  = "jwt"
-	TenantAuthRole       = "tenant-access"
+	ServiceAuthRole      = "service-access"
 	TenantKVAccessPolicy = "tenant-kv-access"
 )
 
@@ -50,11 +50,12 @@ type LifecycleClient interface {
 type VaultLifecycleClientBuilder struct {
 	logger            *slog.Logger
 	address           string
-	tokenSource       VaultTokenSource
+	tokenSource       TokenSource
 	parentNamespace   string
 	kvMountPath       string
 	keycloakIssuerURL string
 	keycloakAudience  string
+	serviceClientID   string
 	caPool            *x509.CertPool
 	caPEM             string
 }
@@ -62,11 +63,12 @@ type VaultLifecycleClientBuilder struct {
 type VaultLifecycleClient struct {
 	logger            *slog.Logger
 	client            *vaultapi.Client
-	tokenSource       VaultTokenSource
+	tokenSource       TokenSource
 	parentNamespace   string
 	kvMountPath       string
 	keycloakIssuerURL string
 	keycloakAudience  string
+	serviceClientID   string
 	caPEM             string
 }
 
@@ -87,7 +89,7 @@ func (b *VaultLifecycleClientBuilder) SetAddress(value string) *VaultLifecycleCl
 	return b
 }
 
-func (b *VaultLifecycleClientBuilder) SetTokenSource(value VaultTokenSource) *VaultLifecycleClientBuilder {
+func (b *VaultLifecycleClientBuilder) SetTokenSource(value TokenSource) *VaultLifecycleClientBuilder {
 	b.tokenSource = value
 	return b
 }
@@ -117,6 +119,11 @@ func (b *VaultLifecycleClientBuilder) SetCaPool(value *x509.CertPool) *VaultLife
 	return b
 }
 
+func (b *VaultLifecycleClientBuilder) SetServiceClientID(value string) *VaultLifecycleClientBuilder {
+	b.serviceClientID = value
+	return b
+}
+
 func (b *VaultLifecycleClientBuilder) SetCaPEM(value string) *VaultLifecycleClientBuilder {
 	b.caPEM = value
 	return b
@@ -141,6 +148,10 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 	}
 	if b.keycloakIssuerURL == "" {
 		err = errors.New("keycloak issuer URL is mandatory")
+		return
+	}
+	if b.serviceClientID == "" {
+		err = errors.New("service client ID is mandatory")
 		return
 	}
 	if err = validatePathComponent(b.kvMountPath, "KV mount path"); err != nil {
@@ -175,6 +186,7 @@ func (b *VaultLifecycleClientBuilder) Build() (result *VaultLifecycleClient, err
 		kvMountPath:       b.kvMountPath,
 		keycloakIssuerURL: b.keycloakIssuerURL,
 		keycloakAudience:  b.keycloakAudience,
+		serviceClientID:   b.serviceClientID,
 		caPEM:             b.caPEM,
 	}
 	return
@@ -281,7 +293,7 @@ func (c *VaultLifecycleClient) configureJWTAuth(ctx context.Context, client *vau
 	tenantName string) error {
 	config := map[string]any{
 		"oidc_discovery_url": c.keycloakIssuerURL,
-		"default_role":       TenantAuthRole,
+		"default_role":       ServiceAuthRole,
 	}
 	if c.caPEM != "" {
 		config["oidc_discovery_ca_pem"] = c.caPEM
@@ -312,13 +324,13 @@ path "%s/metadata/*" {
 func (c *VaultLifecycleClient) createRole(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
 	_, err := client.Logical().WriteWithContext(ctx,
-		fmt.Sprintf("auth/%s/role/%s", TenantAuthMountPath, TenantAuthRole), map[string]any{
+		fmt.Sprintf("auth/%s/role/%s", TenantAuthMountPath, ServiceAuthRole), map[string]any{
 			"role_type":       "jwt",
 			"bound_audiences": []string{c.keycloakAudience},
 			"bound_claims": map[string]any{
-				"organization": []string{tenantName},
+				"azp": []string{c.serviceClientID},
 			},
-			"user_claim": "sub",
+			"user_claim": "azp",
 			"policies":   []string{TenantKVAccessPolicy},
 		})
 	if err != nil {

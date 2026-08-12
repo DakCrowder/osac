@@ -40,7 +40,7 @@ type SecretStore interface {
 type VaultSecretStoreBuilder struct {
 	logger          *slog.Logger
 	address         string
-	tokenSource     VaultTokenSource
+	tokenSource     TenantTokenSource
 	parentNamespace string
 	kvMountPath     string
 	caPool          *x509.CertPool
@@ -49,7 +49,7 @@ type VaultSecretStoreBuilder struct {
 type VaultSecretStore struct {
 	logger          *slog.Logger
 	client          *vaultapi.Client
-	tokenSource     VaultTokenSource
+	tokenSource     TenantTokenSource
 	parentNamespace string
 	kvMountPath     string
 }
@@ -70,7 +70,7 @@ func (b *VaultSecretStoreBuilder) SetAddress(value string) *VaultSecretStoreBuil
 	return b
 }
 
-func (b *VaultSecretStoreBuilder) SetTokenSource(value VaultTokenSource) *VaultSecretStoreBuilder {
+func (b *VaultSecretStoreBuilder) SetTokenSource(value TenantTokenSource) *VaultSecretStoreBuilder {
 	b.tokenSource = value
 	return b
 }
@@ -255,7 +255,7 @@ func (s *VaultSecretStore) Delete(ctx context.Context, tenant, project, name str
 }
 
 func (s *VaultSecretStore) tenantClient(ctx context.Context, tenant string) (*vaultapi.Client, error) {
-	token, err := s.tokenSource.VaultToken(ctx)
+	token, err := s.tokenSource.VaultToken(ctx, tenant)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain vault token: %w", err)
 	}

@@ -33,15 +33,18 @@ func NewLifecycleClientFromConfig(
 	lifecycle LifecycleConfig,
 	caPool *x509.CertPool,
 ) (LifecycleClient, error) {
+	if err := ValidateBaseKeycloakConfig(base); err != nil {
+		return nil, err
+	}
 	if err := ValidateLifecycleConfig(lifecycle); err != nil {
 		return nil, err
 	}
 
-	keycloakClientSecret, err := readTrimmedFile(lifecycle.KeycloakClientSecretFile)
+	keycloakClientSecret, err := readTrimmedFile(base.KeycloakClientSecretFile)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed to read vault keycloak client secret from file '%s': %w",
-			lifecycle.KeycloakClientSecretFile, err,
+			base.KeycloakClientSecretFile, err,
 		)
 	}
 
@@ -58,8 +61,8 @@ func NewLifecycleClientFromConfig(
 		SetVaultNamespace(base.Namespace).
 		SetVaultAuthMountPath(lifecycle.MountPath).
 		SetVaultRole(lifecycle.Role).
-		SetKeycloakTokenEndpoint(lifecycle.KeycloakTokenEndpoint).
-		SetKeycloakClientID(lifecycle.KeycloakClientID).
+		SetKeycloakTokenEndpoint(base.KeycloakTokenEndpoint).
+		SetKeycloakClientID(base.KeycloakClientID).
 		SetKeycloakClientSecret(keycloakClientSecret).
 		SetCaPool(caPool).
 		Build()
@@ -80,6 +83,7 @@ func NewLifecycleClientFromConfig(
 		SetKVMountPath(base.KVMountPath).
 		SetKeycloakIssuerURL(lifecycle.KeycloakIssuerURL).
 		SetKeycloakAudience(lifecycle.KeycloakAudience).
+		SetServiceClientID(base.KeycloakClientID).
 		SetCaPool(caPool)
 	if base.CaCertFile != "" {
 		caPEM, readErr := readTrimmedFile(base.CaCertFile)

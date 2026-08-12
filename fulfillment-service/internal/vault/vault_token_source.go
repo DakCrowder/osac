@@ -15,10 +15,16 @@ package vault
 
 import "context"
 
-// VaultTokenSource provides Vault tokens on demand. Implementations may cache tokens and
-// handle renewal transparently.
+// TokenSource provides Vault tokens on demand using service-level credentials.
+// Implementations may cache tokens and handle renewal transparently.
 //
-//go:generate mockgen -destination=vault_token_source_mock.go -package=vault . VaultTokenSource
-type VaultTokenSource interface {
+//go:generate mockgen -destination=vault_token_source_mock.go -package=vault . TokenSource,TenantTokenSource
+type TokenSource interface {
 	VaultToken(ctx context.Context) (string, error)
+}
+
+// TenantTokenSource provides Vault tokens scoped to a specific tenant.
+// The tenant parameter identifies the tenant namespace and must not be empty.
+type TenantTokenSource interface {
+	VaultToken(ctx context.Context, tenant string) (string, error)
 }

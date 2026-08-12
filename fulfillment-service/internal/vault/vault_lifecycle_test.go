@@ -36,10 +36,10 @@ var _ = Describe("VaultLifecycleClient", func() {
 		ctx = context.Background()
 	})
 
-	newMockTokenSource := func(token string) *MockVaultTokenSource {
+	newMockTokenSource := func(token string) *MockTokenSource {
 		ctrl := gomock.NewController(GinkgoT())
 		DeferCleanup(ctrl.Finish)
-		mock := NewMockVaultTokenSource(ctrl)
+		mock := NewMockTokenSource(ctrl)
 		mock.EXPECT().VaultToken(gomock.Any()).Return(token, nil).AnyTimes()
 		return mock
 	}
@@ -62,6 +62,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 			SetKVMountPath("secret").
 			SetKeycloakIssuerURL("https://keycloak.example.com/realms/osac").
 			SetKeycloakAudience("osac-api").
+			SetServiceClientID("test-client").
 			Build()
 		Expect(err).ToNot(HaveOccurred())
 		return client, server
@@ -74,6 +75,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("logger"))
@@ -85,6 +87,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("address"))
@@ -96,6 +99,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetAddress("http://localhost:8200").
 				SetParentNamespace("osac").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("token source"))
@@ -107,6 +111,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetAddress("http://localhost:8200").
 				SetTokenSource(newMockTokenSource("token")).
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parent namespace"))
@@ -118,9 +123,22 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetAddress("http://localhost:8200").
 				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("keycloak issuer URL"))
+		})
+
+		It("fails without service client ID", func() {
+			_, err := NewVaultLifecycleClient().
+				SetLogger(logger).
+				SetAddress("http://localhost:8200").
+				SetTokenSource(newMockTokenSource("token")).
+				SetParentNamespace("osac").
+				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				Build()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("service client ID"))
 		})
 
 		It("fails with invalid KV mount path", func() {
@@ -131,6 +149,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetParentNamespace("osac").
 				SetKVMountPath("../escape").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("KV mount path"))
@@ -149,6 +168,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetTokenSource(newMockTokenSource("token")).
 				SetParentNamespace("osac").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(client.kvMountPath).To(Equal("secret"))
@@ -206,17 +226,17 @@ var _ = Describe("VaultLifecycleClient", func() {
 			Expect(requests[3].namespace).To(Equal("osac/tenant-a"))
 			Expect(requests[3].body["oidc_discovery_url"]).To(Equal(
 				"https://keycloak.example.com/realms/osac"))
-			Expect(requests[3].body["default_role"]).To(Equal("tenant-access"))
+			Expect(requests[3].body["default_role"]).To(Equal("service-access"))
 
 			// 5. Create policy
 			Expect(requests[4].path).To(Equal("/v1/sys/policies/acl/tenant-kv-access"))
 			Expect(requests[4].namespace).To(Equal("osac/tenant-a"))
 
 			// 6. Create role
-			Expect(requests[5].path).To(Equal("/v1/auth/jwt/role/tenant-access"))
+			Expect(requests[5].path).To(Equal("/v1/auth/jwt/role/service-access"))
 			Expect(requests[5].namespace).To(Equal("osac/tenant-a"))
 			Expect(requests[5].body["role_type"]).To(Equal("jwt"))
-			Expect(requests[5].body["user_claim"]).To(Equal("sub"))
+			Expect(requests[5].body["user_claim"]).To(Equal("azp"))
 		})
 
 		It("tolerates already-exists errors for namespace creation", func() {
@@ -333,7 +353,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 
 		It("returns error when role creation fails", func() {
 			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/v1/auth/jwt/role/tenant-access" {
+				if r.URL.Path == "/v1/auth/jwt/role/service-access" {
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(`{"errors":["internal error"]}`))
 					return
@@ -397,6 +417,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 				SetParentNamespace("osac").
 				SetKVMountPath("custom-kv").
 				SetKeycloakIssuerURL("https://keycloak/realms/osac").
+				SetServiceClientID("test-client").
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -406,10 +427,10 @@ var _ = Describe("VaultLifecycleClient", func() {
 			Expect(policyBody).To(ContainSubstring(`"custom-kv/metadata/*"`))
 		})
 
-		It("creates role with correct bound claims for tenant", func() {
+		It("creates role with correct bound claims for service client", func() {
 			var roleBody map[string]any
 			client, _ := newTestLifecycleClient(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/v1/auth/jwt/role/tenant-access" {
+				if r.URL.Path == "/v1/auth/jwt/role/service-access" {
 					bodyBytes, _ := io.ReadAll(r.Body)
 					json.Unmarshal(bodyBytes, &roleBody)
 				}
@@ -422,9 +443,9 @@ var _ = Describe("VaultLifecycleClient", func() {
 
 			boundClaims, ok := roleBody["bound_claims"].(map[string]any)
 			Expect(ok).To(BeTrue())
-			orgs, ok := boundClaims["organization"].([]any)
+			clients, ok := boundClaims["azp"].([]any)
 			Expect(ok).To(BeTrue())
-			Expect(orgs).To(ConsistOf("my-tenant"))
+			Expect(clients).To(ConsistOf("test-client"))
 
 			audiences, ok := roleBody["bound_audiences"].([]any)
 			Expect(ok).To(BeTrue())

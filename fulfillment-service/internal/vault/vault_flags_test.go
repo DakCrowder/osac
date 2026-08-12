@@ -58,14 +58,47 @@ var _ = Describe("Vault flags", func() {
 		})
 	})
 
-	Describe("ValidateLifecycleConfig", func() {
+	Describe("ValidateBaseKeycloakConfig", func() {
 		It("returns nil when all required fields are set", func() {
-			cfg := LifecycleConfig{
-				Role:                     "lifecycle",
-				KeycloakIssuerURL:        "https://kc/realms/osac",
+			cfg := BaseConfig{
+				Endpoint:                 "https://vault.example.com",
 				KeycloakTokenEndpoint:    "https://kc/realms/osac/protocol/openid-connect/token",
 				KeycloakClientID:         "vault-client",
 				KeycloakClientSecretFile: "/etc/secret",
+			}
+			Expect(ValidateBaseKeycloakConfig(cfg)).To(Succeed())
+		})
+
+		It("returns error when token endpoint is missing", func() {
+			cfg := BaseConfig{
+				KeycloakClientID:         "vault-client",
+				KeycloakClientSecretFile: "/etc/secret",
+			}
+			Expect(ValidateBaseKeycloakConfig(cfg)).To(HaveOccurred())
+		})
+
+		It("returns error when client ID is missing", func() {
+			cfg := BaseConfig{
+				KeycloakTokenEndpoint:    "https://kc/token",
+				KeycloakClientSecretFile: "/etc/secret",
+			}
+			Expect(ValidateBaseKeycloakConfig(cfg)).To(HaveOccurred())
+		})
+
+		It("returns error when client secret file is missing", func() {
+			cfg := BaseConfig{
+				KeycloakTokenEndpoint: "https://kc/token",
+				KeycloakClientID:      "vault-client",
+			}
+			Expect(ValidateBaseKeycloakConfig(cfg)).To(HaveOccurred())
+		})
+	})
+
+	Describe("ValidateLifecycleConfig", func() {
+		It("returns nil when all required fields are set", func() {
+			cfg := LifecycleConfig{
+				Role:              "lifecycle",
+				KeycloakIssuerURL: "https://kc/realms/osac",
 			}
 			Expect(ValidateLifecycleConfig(cfg)).To(Succeed())
 		})

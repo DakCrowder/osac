@@ -1672,7 +1672,9 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 			"keycloakClientId":      "osac-controller",
 			"keycloakIssuerUrl":     fmt.Sprintf("https://%s/realms/osac", keycloakAddr),
 			"keycloakAudience":      "osac-api",
-			"caCertFile":            "/etc/fulfillment-controller/tls/cas/bundle.pem",
+			"caBundle": map[string]any{
+				"configMap": "ca-bundle",
+			},
 			"credentials": []map[string]any{
 				{
 					"secret": map[string]any{

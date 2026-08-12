@@ -38,11 +38,11 @@ var _ = Describe("VaultSecretStore", func() {
 		ctx = context.Background()
 	})
 
-	newMockTokenSource := func(token string) *MockVaultTokenSource {
+	newMockTokenSource := func(token string) *MockTenantTokenSource {
 		ctrl := gomock.NewController(GinkgoT())
 		DeferCleanup(ctrl.Finish)
-		mock := NewMockVaultTokenSource(ctrl)
-		mock.EXPECT().VaultToken(gomock.Any()).Return(token, nil).AnyTimes()
+		mock := NewMockTenantTokenSource(ctrl)
+		mock.EXPECT().VaultToken(gomock.Any(), gomock.Any()).Return(token, nil).AnyTimes()
 		return mock
 	}
 
@@ -325,6 +325,45 @@ var _ = Describe("VaultSecretStore", func() {
 			Expect(ok).To(BeTrue())
 			Expect(st.Code()).To(Equal(grpccodes.Unavailable))
 			Expect(st.Message()).To(Equal("vault operation failed"))
+		})
+	})
+
+	Describe("Tenant parameter threading", func() {
+		It("passes the tenant to the token source as a parameter", func() {
+			var capturedTenant string
+			ctrl := gomock.NewController(GinkgoT())
+			DeferCleanup(ctrl.Finish)
+			tokenSource := NewMockTenantTokenSource(ctrl)
+			tokenSource.EXPECT().VaultToken(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, tenant string) (string, error) {
+					capturedTenant = tenant
+					return "test-token", nil
+				},
+			).AnyTimes()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{
+						"data": map[string]any{
+							"key": base64.StdEncoding.EncodeToString([]byte("value")),
+						},
+					},
+				})
+			}))
+			DeferCleanup(server.Close)
+
+			store, err := NewVaultSecretStore().
+				SetLogger(logger).
+				SetAddress(server.URL).
+				SetTokenSource(tokenSource).
+				SetParentNamespace("osac").
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = store.Fetch(ctx, "my-tenant", "", "my-secret")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(capturedTenant).To(Equal("my-tenant"))
 		})
 	})
 })

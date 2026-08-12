@@ -14,17 +14,12 @@ language governing permissions and limitations under the License.
 package vault
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,11 +27,8 @@ import (
 )
 
 const (
-	applicationJSON           = "application/json"
 	applicationFormURLencoded = "application/x-www-form-urlencoded"
 	oauth2ClientCredentials   = "client_credentials"
-	vaultNamespaceHeader      = "X-Vault-Namespace"
-	contentTypeHeader         = "Content-Type"
 )
 
 type AuthenticatorBuilder struct {
@@ -152,18 +144,10 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 		return
 	}
 
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	if b.caPool != nil {
-		transport, ok := http.DefaultTransport.(*http.Transport)
-		if !ok {
-			err = errors.New("unexpected default transport type")
-			return
-		}
-		cloned := transport.Clone()
-		cloned.TLSClientConfig.RootCAs = b.caPool
-		httpClient.Transport = cloned
+	httpClient, httpErr := newHTTPClient(b.caPool)
+	if httpErr != nil {
+		err = httpErr
+		return
 	}
 
 	result = &Authenticator{
@@ -190,9 +174,9 @@ func (a *Authenticator) VaultToken(ctx context.Context) (string, error) {
 	a.mu.Unlock()
 
 	result, err, _ := a.sfGroup.Do("vault-lifecycle-token", func() (any, error) {
-		keycloakJWT, err := a.fetchKeycloakToken(ctx)
-		if err != nil {
-			return "", fmt.Errorf("failed to obtain keycloak token: %w", err)
+		keycloakJWT, _, kcErr := fetchKeycloakToken(ctx, a.httpClient, a.keycloakTokenEndpoint, a.keycloakClientID, a.keycloakClientSecret)
+		if kcErr != nil {
+			return "", fmt.Errorf("failed to obtain keycloak token: %w", kcErr)
 		}
 
 		vaultToken, leaseDuration, err := a.loginToVault(ctx, keycloakJWT)
@@ -215,105 +199,6 @@ func (a *Authenticator) VaultToken(ctx context.Context) (string, error) {
 	return result.(string), nil
 }
 
-type keycloakTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	TokenType   string `json:"token_type"`
-}
-
-func (a *Authenticator) fetchKeycloakToken(ctx context.Context) (string, error) {
-	form := url.Values{
-		"grant_type":    {oauth2ClientCredentials},
-		"client_id":     {a.keycloakClientID},
-		"client_secret": {a.keycloakClientSecret},
-	}
-
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, a.keycloakTokenEndpoint,
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create keycloak request: %w", err)
-	}
-	req.Header.Set(contentTypeHeader, applicationFormURLencoded)
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("keycloak token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read keycloak response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("keycloak returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var tokenResp keycloakTokenResponse
-	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
-		return "", fmt.Errorf("failed to decode keycloak response: %w", err)
-	}
-
-	if tokenResp.AccessToken == "" {
-		return "", errors.New("keycloak returned empty access token")
-	}
-
-	return tokenResp.AccessToken, nil
-}
-
-type vaultLoginResponse struct {
-	Auth *vaultAuthData `json:"auth"`
-}
-
-type vaultAuthData struct {
-	ClientToken   string `json:"client_token"`
-	LeaseDuration int    `json:"lease_duration"`
-}
-
 func (a *Authenticator) loginToVault(ctx context.Context, jwt string) (string, int, error) {
-	loginURL := fmt.Sprintf("%s/v1/auth/%s/login", a.vaultAddress, a.vaultAuthMountPath)
-
-	body, err := json.Marshal(map[string]string{
-		"jwt":  jwt,
-		"role": a.vaultRole,
-	})
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to marshal vault login request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, bytes.NewReader(body))
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to create vault login request: %w", err)
-	}
-	req.Header.Set(contentTypeHeader, applicationJSON)
-	req.Header.Set(vaultNamespaceHeader, a.vaultNamespace)
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("vault login request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to read vault response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("vault login returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var loginResp vaultLoginResponse
-	if err := json.Unmarshal(respBody, &loginResp); err != nil {
-		return "", 0, fmt.Errorf("failed to decode vault login response: %w", err)
-	}
-
-	if loginResp.Auth == nil || loginResp.Auth.ClientToken == "" {
-		return "", 0, errors.New("vault login response missing auth token")
-	}
-
-	return loginResp.Auth.ClientToken, loginResp.Auth.LeaseDuration, nil
+	return loginToVault(ctx, a.httpClient, a.vaultAddress, a.vaultNamespace, a.vaultAuthMountPath, a.vaultRole, jwt)
 }

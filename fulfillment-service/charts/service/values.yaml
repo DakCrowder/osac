@@ -217,9 +217,12 @@ vault:
   # Expected audience claim in Keycloak JWTs for Vault JWT auth role configuration.
   keycloakAudience: "osac-api"
 
-  # File containing CA certificates for TLS connections to the Vault-compatible secret store.
+  # Trusted CA certificates bundle for TLS connections to the Vault-compatible secret store.
+  # When set, this must be the name of a ConfigMap in the release namespace containing
+  # trusted CA certificates in PEM format under the key 'bundle.pem'.
   # When empty, the shared CA pool is used.
-  caCertFile: ""
+  caBundle:
+    configMap: ""
 
   # Volume sources for the Keycloak client secret used for Vault authentication.
   credentials: []
