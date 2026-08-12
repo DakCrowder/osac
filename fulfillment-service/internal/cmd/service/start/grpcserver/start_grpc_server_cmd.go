@@ -1128,7 +1128,8 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		return fmt.Errorf("failed to read vault flags: %w", err)
 	}
 
-	// Perform vault health check if configured:
+	// Set up vault if configured:
+	var secretStore vault.SecretStore
 	if c.args.vaultBase.Endpoint != "" {
 		c.logger.InfoContext(ctx, "Performing vault health check")
 		vaultCaPool := caPool
@@ -1162,6 +1163,28 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 				slog.String("error", healthErr.Error()),
 			)
 		}
+
+		userJWTTokenSource, tokenErr := vault.NewUserJWTTokenSource().
+			SetLogger(c.logger).
+			SetVaultAddress(c.args.vaultBase.Endpoint).
+			SetParentNamespace(c.args.vaultBase.Namespace).
+			SetCaPool(vaultCaPool).
+			Build()
+		if tokenErr != nil {
+			return fmt.Errorf("failed to create user JWT token source: %w", tokenErr)
+		}
+
+		secretStore, err = vault.NewVaultSecretStore().
+			SetLogger(c.logger).
+			SetAddress(c.args.vaultBase.Endpoint).
+			SetTokenSource(userJWTTokenSource).
+			SetParentNamespace(c.args.vaultBase.Namespace).
+			SetKVMountPath(c.args.vaultBase.KVMountPath).
+			SetCaPool(vaultCaPool).
+			Build()
+		if err != nil {
+			return fmt.Errorf("failed to create vault secret store: %w", err)
+		}
 	}
 
 	// Create the private secrets server:
@@ -1172,6 +1195,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetAttributionLogic(privateAttributionLogic).
 		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
+		SetSecretStore(secretStore).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create private secrets server: %w", err)
@@ -1186,6 +1210,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetAttributionLogic(publicAttributionLogic).
 		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
+		SetSecretStore(secretStore).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create public secrets server: %w", err)

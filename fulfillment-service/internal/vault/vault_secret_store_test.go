@@ -327,4 +327,43 @@ var _ = Describe("VaultSecretStore", func() {
 			Expect(st.Message()).To(Equal("vault operation failed"))
 		})
 	})
+
+	Describe("Tenant context threading", func() {
+		It("passes the tenant to the token source via context", func() {
+			var capturedTenant string
+			ctrl := gomock.NewController(GinkgoT())
+			DeferCleanup(ctrl.Finish)
+			tokenSource := NewMockVaultTokenSource(ctrl)
+			tokenSource.EXPECT().VaultToken(gomock.Any()).DoAndReturn(
+				func(ctx context.Context) (string, error) {
+					capturedTenant = TenantFromContext(ctx)
+					return "test-token", nil
+				},
+			).AnyTimes()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{
+						"data": map[string]any{
+							"key": base64.StdEncoding.EncodeToString([]byte("value")),
+						},
+					},
+				})
+			}))
+			DeferCleanup(server.Close)
+
+			store, err := NewVaultSecretStore().
+				SetLogger(logger).
+				SetAddress(server.URL).
+				SetTokenSource(tokenSource).
+				SetParentNamespace("osac").
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = store.Fetch(ctx, "my-tenant", "", "my-secret")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(capturedTenant).To(Equal("my-tenant"))
+		})
+	})
 })

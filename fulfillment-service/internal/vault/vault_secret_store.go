@@ -255,6 +255,7 @@ func (s *VaultSecretStore) Delete(ctx context.Context, tenant, project, name str
 }
 
 func (s *VaultSecretStore) tenantClient(ctx context.Context, tenant string) (*vaultapi.Client, error) {
+	ctx = ContextWithTenant(ctx, tenant)
 	token, err := s.tokenSource.VaultToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain vault token: %w", err)
