@@ -26,6 +26,12 @@ import (
 	vaultapi "github.com/hashicorp/vault/api"
 )
 
+const (
+	TenantAuthMountPath  = "jwt"
+	TenantAuthRole       = "tenant-access"
+	TenantKVAccessPolicy = "tenant-kv-access"
+)
+
 // LifecycleClient manages tenant namespace lifecycle in a Vault-compatible secret store.
 // Implementations handle creating and configuring per-tenant namespaces with KV v2
 // secret engines, JWT auth methods, policies, and roles.
@@ -262,7 +268,7 @@ func (c *VaultLifecycleClient) mountKV(ctx context.Context, client *vaultapi.Cli
 
 func (c *VaultLifecycleClient) enableJWTAuth(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
-	err := client.Sys().EnableAuthWithOptionsWithContext(ctx, "jwt", &vaultapi.EnableAuthOptions{
+	err := client.Sys().EnableAuthWithOptionsWithContext(ctx, TenantAuthMountPath, &vaultapi.EnableAuthOptions{
 		Type: "jwt",
 	})
 	if err != nil && !isAlreadyExistsError(err) {
@@ -275,12 +281,12 @@ func (c *VaultLifecycleClient) configureJWTAuth(ctx context.Context, client *vau
 	tenantName string) error {
 	config := map[string]any{
 		"oidc_discovery_url": c.keycloakIssuerURL,
-		"default_role":       "tenant-access",
+		"default_role":       TenantAuthRole,
 	}
 	if c.caPEM != "" {
 		config["oidc_discovery_ca_pem"] = c.caPEM
 	}
-	_, err := client.Logical().WriteWithContext(ctx, "auth/jwt/config", config)
+	_, err := client.Logical().WriteWithContext(ctx, fmt.Sprintf("auth/%s/config", TenantAuthMountPath), config)
 	if err != nil {
 		return fmt.Errorf("failed to configure JWT auth for tenant %q: %w", tenantName, err)
 	}
@@ -296,7 +302,7 @@ path "%s/metadata/*" {
   capabilities = ["read", "delete", "list"]
 }`, c.kvMountPath, c.kvMountPath)
 
-	err := client.Sys().PutPolicyWithContext(ctx, "tenant-kv-access", policy)
+	err := client.Sys().PutPolicyWithContext(ctx, TenantKVAccessPolicy, policy)
 	if err != nil {
 		return fmt.Errorf("failed to create policy for tenant %q: %w", tenantName, err)
 	}
@@ -305,15 +311,16 @@ path "%s/metadata/*" {
 
 func (c *VaultLifecycleClient) createRole(ctx context.Context, client *vaultapi.Client,
 	tenantName string) error {
-	_, err := client.Logical().WriteWithContext(ctx, "auth/jwt/role/tenant-access", map[string]any{
-		"role_type":       "jwt",
-		"bound_audiences": []string{c.keycloakAudience},
-		"bound_claims": map[string]any{
-			"organization": []string{tenantName},
-		},
-		"user_claim": "sub",
-		"policies":   []string{"tenant-kv-access"},
-	})
+	_, err := client.Logical().WriteWithContext(ctx,
+		fmt.Sprintf("auth/%s/role/%s", TenantAuthMountPath, TenantAuthRole), map[string]any{
+			"role_type":       "jwt",
+			"bound_audiences": []string{c.keycloakAudience},
+			"bound_claims": map[string]any{
+				"organization": []string{tenantName},
+			},
+			"user_claim": "sub",
+			"policies":   []string{TenantKVAccessPolicy},
+		})
 	if err != nil {
 		return fmt.Errorf("failed to create role for tenant %q: %w", tenantName, err)
 	}
