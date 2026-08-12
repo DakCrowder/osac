@@ -79,6 +79,18 @@ service:
     level: info
     headers: false
     bodies: false
+  vault:
+    endpoint: ""
+    namespace: osac
+    kvMountPath: secret
+    lifecycleRole: ""
+    lifecycleMountPath: "jwt"
+    keycloakTokenEndpoint: ""
+    keycloakClientId: ""
+    keycloakIssuerUrl: ""
+    keycloakAudience: "osac-api"
+    caCertFile: ""
+    credentials: []
 
 # --- AAP ---
 aap:
