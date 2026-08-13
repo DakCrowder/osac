@@ -120,9 +120,8 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "user-jwt-token")
-			ctx = ContextWithTenant(ctx, "my-tenant")
 
-			token, err := source.VaultToken(ctx)
+			token, err := source.VaultToken(ctx, "my-tenant")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(token).To(Equal("vault-token-123"))
 		})
@@ -154,9 +153,8 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "some-jwt")
-			ctx = ContextWithTenant(ctx, "tenant-a")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "tenant-a")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(capturedPath).To(Equal("/v1/auth/" + TenantAuthMountPath + "/login"))
 			Expect(capturedRole).To(Equal(TenantAuthRole))
@@ -170,9 +168,7 @@ var _ = Describe("UserJWTTokenSource", func() {
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 
-			ctx = ContextWithTenant(ctx, "my-tenant")
-
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "my-tenant")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("JWT token not found"))
 		})
@@ -186,14 +182,13 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "")
-			ctx = ContextWithTenant(ctx, "my-tenant")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "my-tenant")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("JWT token not found"))
 		})
 
-		It("fails when no tenant is in context", func() {
+		It("fails when tenant is empty", func() {
 			source, err := NewUserJWTTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
@@ -203,9 +198,9 @@ var _ = Describe("UserJWTTokenSource", func() {
 
 			ctx = contextWithJWT(ctx, "user-jwt-token")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "")
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("tenant not found"))
+			Expect(err.Error()).To(ContainSubstring("tenant is required"))
 		})
 
 		It("returns error when vault login fails with 403", func() {
@@ -223,9 +218,8 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "bad-jwt")
-			ctx = ContextWithTenant(ctx, "my-tenant")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "my-tenant")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("403"))
 		})
@@ -245,9 +239,8 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "some-jwt")
-			ctx = ContextWithTenant(ctx, "my-tenant")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "my-tenant")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("500"))
 		})
@@ -274,9 +267,8 @@ var _ = Describe("UserJWTTokenSource", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			ctx = contextWithJWT(ctx, "jwt")
-			ctx = ContextWithTenant(ctx, "tenant-xyz")
 
-			_, err = source.VaultToken(ctx)
+			_, err = source.VaultToken(ctx, "tenant-xyz")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(capturedNamespace).To(Equal("my-parent-ns/tenant-xyz"))
 		})

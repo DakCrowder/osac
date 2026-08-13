@@ -89,7 +89,8 @@ service:
     keycloakClientId: ""
     keycloakIssuerUrl: ""
     keycloakAudience: "osac-api"
-    caCertFile: ""
+    caBundle:
+      configMap: ""
     credentials: []
 
 # --- AAP ---

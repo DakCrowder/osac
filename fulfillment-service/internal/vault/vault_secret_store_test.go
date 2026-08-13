@@ -38,11 +38,11 @@ var _ = Describe("VaultSecretStore", func() {
 		ctx = context.Background()
 	})
 
-	newMockTokenSource := func(token string) *MockVaultTokenSource {
+	newMockTokenSource := func(token string) *MockTenantTokenSource {
 		ctrl := gomock.NewController(GinkgoT())
 		DeferCleanup(ctrl.Finish)
-		mock := NewMockVaultTokenSource(ctrl)
-		mock.EXPECT().VaultToken(gomock.Any()).Return(token, nil).AnyTimes()
+		mock := NewMockTenantTokenSource(ctrl)
+		mock.EXPECT().VaultToken(gomock.Any(), gomock.Any()).Return(token, nil).AnyTimes()
 		return mock
 	}
 
@@ -328,15 +328,15 @@ var _ = Describe("VaultSecretStore", func() {
 		})
 	})
 
-	Describe("Tenant context threading", func() {
-		It("passes the tenant to the token source via context", func() {
+	Describe("Tenant parameter threading", func() {
+		It("passes the tenant to the token source as a parameter", func() {
 			var capturedTenant string
 			ctrl := gomock.NewController(GinkgoT())
 			DeferCleanup(ctrl.Finish)
-			tokenSource := NewMockVaultTokenSource(ctrl)
-			tokenSource.EXPECT().VaultToken(gomock.Any()).DoAndReturn(
-				func(ctx context.Context) (string, error) {
-					capturedTenant = TenantFromContext(ctx)
+			tokenSource := NewMockTenantTokenSource(ctrl)
+			tokenSource.EXPECT().VaultToken(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, tenant string) (string, error) {
+					capturedTenant = tenant
 					return "test-token", nil
 				},
 			).AnyTimes()

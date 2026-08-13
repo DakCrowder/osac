@@ -148,18 +148,10 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 		return
 	}
 
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	if b.caPool != nil {
-		transport, ok := http.DefaultTransport.(*http.Transport)
-		if !ok {
-			err = errors.New("unexpected default transport type")
-			return
-		}
-		cloned := transport.Clone()
-		cloned.TLSClientConfig.RootCAs = b.caPool
-		httpClient.Transport = cloned
+	httpClient, httpErr := newHTTPClient(b.caPool)
+	if httpErr != nil {
+		err = httpErr
+		return
 	}
 
 	result = &Authenticator{

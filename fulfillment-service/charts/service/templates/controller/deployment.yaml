@@ -112,12 +112,22 @@ spec:
           {{- end }}
           {{- end }}
       {{- end }}
+      {{- if and .Values.vault.endpoint .Values.vault.caBundle.configMap }}
+      - name: vault-cas
+        configMap:
+          name: {{ .Values.vault.caBundle.configMap }}
+      {{- end }}
       containers:
       - name: controller
         image: {{ .Values.images.service }}
         volumeMounts:
         - name: cas
           mountPath: /etc/fulfillment-controller/tls/cas
+        {{- if and .Values.vault.endpoint .Values.vault.caBundle.configMap }}
+        - name: vault-cas
+          mountPath: /etc/fulfillment-controller/vault-cas
+          readOnly: true
+        {{- end }}
         - name: tls
           mountPath: /etc/fulfillment-controller/tls
         - name: credentials
@@ -175,8 +185,8 @@ spec:
         - --vault-keycloak-client-secret-file=/etc/fulfillment-controller/vault/client-secret
         - --vault-keycloak-issuer-url={{ .Values.vault.keycloakIssuerUrl }}
         - --vault-keycloak-audience={{ .Values.vault.keycloakAudience }}
-        {{- if .Values.vault.caCertFile }}
-        - --vault-ca-cert-file={{ .Values.vault.caCertFile }}
+        {{- if .Values.vault.caBundle.configMap }}
+        - --vault-ca-cert-file=/etc/fulfillment-controller/vault-cas/bundle.pem
         {{- end }}
         {{- end }}
         ports:

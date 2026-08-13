@@ -389,9 +389,15 @@
               "description": "Expected audience claim in Keycloak JWTs for Vault JWT auth role configuration",
               "default": "osac-api"
             },
-            "caCertFile": {
-              "type": "string",
-              "description": "File containing CA certificates for TLS connections to the Vault-compatible secret store"
+            "caBundle": {
+              "type": "object",
+              "description": "Trusted CA certificates bundle for TLS connections to the Vault-compatible secret store",
+              "properties": {
+                "configMap": {
+                  "type": "string",
+                  "description": "ConfigMap name containing trusted CA certificates in PEM format under the key 'bundle.pem'. When empty, the shared CA pool is used."
+                }
+              }
             },
             "credentials": {
               "type": "array",

@@ -50,7 +50,7 @@ type LifecycleClient interface {
 type VaultLifecycleClientBuilder struct {
 	logger            *slog.Logger
 	address           string
-	tokenSource       VaultTokenSource
+	tokenSource       TokenSource
 	parentNamespace   string
 	kvMountPath       string
 	keycloakIssuerURL string
@@ -62,7 +62,7 @@ type VaultLifecycleClientBuilder struct {
 type VaultLifecycleClient struct {
 	logger            *slog.Logger
 	client            *vaultapi.Client
-	tokenSource       VaultTokenSource
+	tokenSource       TokenSource
 	parentNamespace   string
 	kvMountPath       string
 	keycloakIssuerURL string
@@ -87,7 +87,7 @@ func (b *VaultLifecycleClientBuilder) SetAddress(value string) *VaultLifecycleCl
 	return b
 }
 
-func (b *VaultLifecycleClientBuilder) SetTokenSource(value VaultTokenSource) *VaultLifecycleClientBuilder {
+func (b *VaultLifecycleClientBuilder) SetTokenSource(value TokenSource) *VaultLifecycleClientBuilder {
 	b.tokenSource = value
 	return b
 }

@@ -16,11 +16,13 @@ package vault
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const (
@@ -28,6 +30,22 @@ const (
 	vaultNamespaceHeader = "X-Vault-Namespace"
 	contentTypeHeader    = "Content-Type"
 )
+
+func newHTTPClient(caPool *x509.CertPool) (*http.Client, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	if caPool != nil {
+		transport, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return nil, errors.New("unexpected default transport type")
+		}
+		cloned := transport.Clone()
+		cloned.TLSClientConfig.RootCAs = caPool
+		client.Transport = cloned
+	}
+	return client, nil
+}
 
 type vaultLoginResponse struct {
 	Auth *vaultAuthData `json:"auth"`

@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
-	"time"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 )
@@ -78,18 +77,10 @@ func (b *UserJWTTokenSourceBuilder) Build() (result *UserJWTTokenSource, err err
 		return
 	}
 
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	if b.caPool != nil {
-		transport, ok := http.DefaultTransport.(*http.Transport)
-		if !ok {
-			err = errors.New("unexpected default transport type")
-			return
-		}
-		cloned := transport.Clone()
-		cloned.TLSClientConfig.RootCAs = b.caPool
-		httpClient.Transport = cloned
+	httpClient, httpErr := newHTTPClient(b.caPool)
+	if httpErr != nil {
+		err = httpErr
+		return
 	}
 
 	result = &UserJWTTokenSource{
@@ -101,15 +92,14 @@ func (b *UserJWTTokenSourceBuilder) Build() (result *UserJWTTokenSource, err err
 	return
 }
 
-func (s *UserJWTTokenSource) VaultToken(ctx context.Context) (string, error) {
+func (s *UserJWTTokenSource) VaultToken(ctx context.Context, tenant string) (string, error) {
 	token := auth.TokenFromContext(ctx)
 	if token == nil || token.Raw == "" {
 		return "", fmt.Errorf("user JWT token not found in request context")
 	}
 
-	tenant := TenantFromContext(ctx)
 	if tenant == "" {
-		return "", fmt.Errorf("tenant not found in vault context")
+		return "", fmt.Errorf("tenant is required for user vault authentication")
 	}
 
 	namespace := path.Join(s.parentNamespace, tenant)

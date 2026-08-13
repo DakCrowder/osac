@@ -36,10 +36,10 @@ var _ = Describe("VaultLifecycleClient", func() {
 		ctx = context.Background()
 	})
 
-	newMockTokenSource := func(token string) *MockVaultTokenSource {
+	newMockTokenSource := func(token string) *MockTokenSource {
 		ctrl := gomock.NewController(GinkgoT())
 		DeferCleanup(ctrl.Finish)
-		mock := NewMockVaultTokenSource(ctrl)
+		mock := NewMockTokenSource(ctrl)
 		mock.EXPECT().VaultToken(gomock.Any()).Return(token, nil).AnyTimes()
 		return mock
 	}
