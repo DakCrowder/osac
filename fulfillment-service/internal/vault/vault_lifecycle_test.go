@@ -422,7 +422,7 @@ var _ = Describe("VaultLifecycleClient", func() {
 
 			boundClaims, ok := roleBody["bound_claims"].(map[string]any)
 			Expect(ok).To(BeTrue())
-			orgs, ok := boundClaims["organization"].([]any)
+			orgs, ok := boundClaims["groups"].([]any)
 			Expect(ok).To(BeTrue())
 			Expect(orgs).To(ConsistOf("my-tenant"))
 

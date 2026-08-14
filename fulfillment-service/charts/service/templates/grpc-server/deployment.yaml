@@ -148,7 +148,7 @@ spec:
         {{- if .Values.vault.caBundle.configMap }}
         - --vault-ca-cert-file=/etc/fulfillment-grpc-server/vault-cas/bundle.pem
         {{- end }}
-        {{ end }}
+        {{- end }}
         ports:
         - name: grpc
           containerPort: 8000

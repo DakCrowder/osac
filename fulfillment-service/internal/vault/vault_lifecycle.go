@@ -316,7 +316,7 @@ func (c *VaultLifecycleClient) createRole(ctx context.Context, client *vaultapi.
 			"role_type":       "jwt",
 			"bound_audiences": []string{c.keycloakAudience},
 			"bound_claims": map[string]any{
-				"organization": []string{tenantName},
+				"groups": []string{tenantName},
 			},
 			"user_claim": "sub",
 			"policies":   []string{TenantKVAccessPolicy},

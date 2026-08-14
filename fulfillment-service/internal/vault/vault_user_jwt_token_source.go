@@ -95,11 +95,11 @@ func (b *UserJWTTokenSourceBuilder) Build() (result *UserJWTTokenSource, err err
 func (s *UserJWTTokenSource) VaultToken(ctx context.Context, tenant string) (string, error) {
 	token := auth.TokenFromContext(ctx)
 	if token == nil || token.Raw == "" {
-		return "", fmt.Errorf("user JWT token not found in request context")
+		return "", errors.New("user JWT token not found in request context")
 	}
 
 	if tenant == "" {
-		return "", fmt.Errorf("tenant is required for user vault authentication")
+		return "", errors.New("tenant is required for user vault authentication")
 	}
 
 	namespace := path.Join(s.parentNamespace, tenant)
