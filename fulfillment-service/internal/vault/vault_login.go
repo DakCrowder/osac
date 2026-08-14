@@ -16,6 +16,7 @@ package vault
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,9 @@ func newHTTPClient(caPool *x509.CertPool) (*http.Client, error) {
 			return nil, errors.New("unexpected default transport type")
 		}
 		cloned := transport.Clone()
+		if cloned.TLSClientConfig == nil {
+			cloned.TLSClientConfig = &tls.Config{}
+		}
 		cloned.TLSClientConfig.RootCAs = caPool
 		client.Transport = cloned
 	}
