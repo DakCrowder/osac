@@ -85,7 +85,6 @@ service:
     kvMountPath: secret
     lifecycleRole: ""
     lifecycleMountPath: "jwt"
-    keycloakTokenEndpoint: ""
     keycloakClientId: ""
     keycloakIssuerUrl: ""
     keycloakAudience: "osac-api"

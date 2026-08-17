@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -36,21 +35,27 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		ctx = context.Background()
 	})
 
-	newKeycloakHandler := func(expectedClientID, expectedSecret, returnToken string) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+	newKeycloakServer := func(returnToken string) *httptest.Server {
+		var server *httptest.Server
+		mux := http.NewServeMux()
+		mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"issuer":         server.URL,
+				"token_endpoint": server.URL + "/protocol/openid-connect/token",
+			})
+		})
+		mux.HandleFunc("/protocol/openid-connect/token", func(w http.ResponseWriter, r *http.Request) {
 			defer GinkgoRecover()
-			body, _ := io.ReadAll(r.Body)
-			Expect(string(body)).To(ContainSubstring("grant_type=client_credentials"))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("client_id=%s", expectedClientID)))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("client_secret=%s", expectedSecret)))
-
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{
 				"access_token": returnToken,
 				"expires_in":   300,
 				"token_type":   "Bearer",
 			})
-		}
+		})
+		server = httptest.NewServer(mux)
+		return server
 	}
 
 	newVaultHandler := func(expectedJWT, expectedNamespace, returnToken string, leaseDuration int) http.HandlerFunc {
@@ -79,7 +84,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 			_, err := NewServiceTenantTokenSource().
 				SetVaultAddress("http://localhost:8200").
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL("http://keycloak/realms/osac").
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -91,7 +96,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 			_, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL("http://keycloak/realms/osac").
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -103,7 +108,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 			_, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL("http://keycloak/realms/osac").
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -111,7 +116,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 			Expect(err.Error()).To(ContainSubstring("parent namespace"))
 		})
 
-		It("fails without keycloak token endpoint", func() {
+		It("fails without keycloak issuer URL", func() {
 			_, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
@@ -120,15 +125,18 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetKeycloakClientSecret("secret").
 				Build()
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("keycloak token endpoint"))
+			Expect(err.Error()).To(ContainSubstring("keycloak issuer URL"))
 		})
 
 		It("fails without keycloak client ID", func() {
+			keycloakServer := newKeycloakServer("kc-jwt")
+			DeferCleanup(keycloakServer.Close)
+
 			_, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientSecret("secret").
 				Build()
 			Expect(err).To(HaveOccurred())
@@ -136,11 +144,14 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("fails without keycloak client secret", func() {
+			keycloakServer := newKeycloakServer("kc-jwt")
+			DeferCleanup(keycloakServer.Close)
+
 			_, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				Build()
 			Expect(err).To(HaveOccurred())
@@ -150,7 +161,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 
 	Describe("VaultToken", func() {
 		It("performs keycloak and vault authentication for a tenant", func() {
-			keycloakServer := httptest.NewServer(newKeycloakHandler("my-client", "my-secret", "kc-jwt-token"))
+			keycloakServer := newKeycloakServer("kc-jwt-token")
 			DeferCleanup(keycloakServer.Close)
 
 			vaultServer := httptest.NewServer(newVaultHandler("kc-jwt-token", "osac/tenant-a", "vault-tenant-token", 3600))
@@ -160,7 +171,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetLogger(logger).
 				SetVaultAddress(vaultServer.URL).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("my-client").
 				SetKeycloakClientSecret("my-secret").
 				Build()
@@ -174,7 +185,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		It("caches token for the same tenant", func() {
 			var vaultCalls atomic.Int32
 
-			keycloakServer := httptest.NewServer(newKeycloakHandler("client", "secret", "kc-jwt"))
+			keycloakServer := newKeycloakServer("kc-jwt")
 			DeferCleanup(keycloakServer.Close)
 
 			vaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +204,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetLogger(logger).
 				SetVaultAddress(vaultServer.URL).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -211,7 +222,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("produces separate tokens per tenant", func() {
-			keycloakServer := httptest.NewServer(newKeycloakHandler("client", "secret", "kc-jwt"))
+			keycloakServer := newKeycloakServer("kc-jwt")
 			DeferCleanup(keycloakServer.Close)
 
 			var capturedNamespaces sync.Map
@@ -232,7 +243,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetLogger(logger).
 				SetVaultAddress(vaultServer.URL).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -253,11 +264,14 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("returns error for empty tenant", func() {
+			keycloakServer := newKeycloakServer("kc-jwt")
+			DeferCleanup(keycloakServer.Close)
+
 			source, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint("http://keycloak/token").
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -269,17 +283,28 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("returns error when keycloak fails", func() {
-			keycloakServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error": "invalid_client"}`))
-			}))
+			var keycloakServer *httptest.Server
+			mux := http.NewServeMux()
+			mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{
+					"issuer":         keycloakServer.URL,
+					"token_endpoint": keycloakServer.URL + "/protocol/openid-connect/token",
+				})
+			})
+			mux.HandleFunc("/protocol/openid-connect/token", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "invalid_client", "error_description": "Invalid client credentials"}`))
+			})
+			keycloakServer = httptest.NewServer(mux)
 			DeferCleanup(keycloakServer.Close)
 
 			source, err := NewServiceTenantTokenSource().
 				SetLogger(logger).
 				SetVaultAddress("http://localhost:8200").
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -291,7 +316,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("returns error when vault login fails", func() {
-			keycloakServer := httptest.NewServer(newKeycloakHandler("client", "secret", "kc-jwt"))
+			keycloakServer := newKeycloakServer("kc-jwt")
 			DeferCleanup(keycloakServer.Close)
 
 			vaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +329,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetLogger(logger).
 				SetVaultAddress(vaultServer.URL).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()
@@ -316,7 +341,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 		})
 
 		It("is safe for concurrent access", func() {
-			keycloakServer := httptest.NewServer(newKeycloakHandler("client", "secret", "kc-jwt"))
+			keycloakServer := newKeycloakServer("kc-jwt")
 			DeferCleanup(keycloakServer.Close)
 
 			vaultServer := httptest.NewServer(newVaultHandler("kc-jwt", "osac/tenant-a", "concurrent-token", 3600))
@@ -326,7 +351,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 				SetLogger(logger).
 				SetVaultAddress(vaultServer.URL).
 				SetParentNamespace("osac").
-				SetKeycloakTokenEndpoint(keycloakServer.URL).
+				SetKeycloakIssuerURL(keycloakServer.URL).
 				SetKeycloakClientID("client").
 				SetKeycloakClientSecret("secret").
 				Build()

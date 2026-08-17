@@ -61,7 +61,7 @@ func NewLifecycleClientFromConfig(
 		SetVaultNamespace(base.Namespace).
 		SetVaultAuthMountPath(lifecycle.MountPath).
 		SetVaultRole(lifecycle.Role).
-		SetKeycloakTokenEndpoint(base.KeycloakTokenEndpoint).
+		SetKeycloakIssuerURL(base.KeycloakIssuerURL).
 		SetKeycloakClientID(base.KeycloakClientID).
 		SetKeycloakClientSecret(keycloakClientSecret).
 		SetCaPool(caPool).
@@ -81,7 +81,7 @@ func NewLifecycleClientFromConfig(
 		SetTokenSource(authenticator).
 		SetParentNamespace(base.Namespace).
 		SetKVMountPath(base.KVMountPath).
-		SetKeycloakIssuerURL(lifecycle.KeycloakIssuerURL).
+		SetKeycloakIssuerURL(base.KeycloakIssuerURL).
 		SetKeycloakAudience(lifecycle.KeycloakAudience).
 		SetServiceClientID(base.KeycloakClientID).
 		SetCaPool(caPool)

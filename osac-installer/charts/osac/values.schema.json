@@ -372,10 +372,6 @@
               "description": "Auth method mount path in the Vault parent namespace for lifecycle JWT authentication",
               "default": "jwt"
             },
-            "keycloakTokenEndpoint": {
-              "type": "string",
-              "description": "Keycloak token endpoint URL for obtaining JWTs for Vault authentication"
-            },
             "keycloakClientId": {
               "type": "string",
               "description": "Keycloak client identifier for Vault authentication"

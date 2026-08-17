@@ -1668,9 +1668,8 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 			"kvMountPath":           "secret",
 			"lifecycleRole":         "lifecycle",
 			"lifecycleMountPath":    "jwt",
-			"keycloakTokenEndpoint": fmt.Sprintf("https://%s/realms/osac/protocol/openid-connect/token", keycloakAddr),
-			"keycloakClientId":      "osac-controller",
-			"keycloakIssuerUrl":     fmt.Sprintf("https://%s/realms/osac", keycloakAddr),
+			"keycloakClientId":  "osac-controller",
+			"keycloakIssuerUrl": fmt.Sprintf("https://%s/realms/osac", keycloakAddr),
 			"keycloakAudience":      "osac-api",
 			"caBundle": map[string]any{
 				"configMap": "ca-bundle",

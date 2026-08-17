@@ -180,7 +180,6 @@ spec:
         - --vault-kv-mount-path={{ .Values.vault.kvMountPath }}
         - --vault-lifecycle-role={{ .Values.vault.lifecycleRole }}
         - --vault-lifecycle-mount-path={{ .Values.vault.lifecycleMountPath }}
-        - --vault-keycloak-token-endpoint={{ .Values.vault.keycloakTokenEndpoint }}
         - --vault-keycloak-client-id={{ .Values.vault.keycloakClientId }}
         - --vault-keycloak-client-secret-file=/etc/fulfillment-controller/vault/client-secret
         - --vault-keycloak-issuer-url={{ .Values.vault.keycloakIssuerUrl }}

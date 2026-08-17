@@ -24,35 +24,31 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-)
 
-const (
-	applicationFormURLencoded = "application/x-www-form-urlencoded"
-	oauth2ClientCredentials   = "client_credentials"
+	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/oauth"
 )
 
 type AuthenticatorBuilder struct {
-	logger                *slog.Logger
-	vaultAddress          string
-	vaultNamespace        string
-	vaultAuthMountPath    string
-	vaultRole             string
-	keycloakTokenEndpoint string
-	keycloakClientID      string
-	keycloakClientSecret  string
-	caPool                *x509.CertPool
+	logger             *slog.Logger
+	vaultAddress       string
+	vaultNamespace     string
+	vaultAuthMountPath string
+	vaultRole          string
+	keycloakIssuerURL  string
+	keycloakClientID   string
+	keycloakClientSecret string
+	caPool             *x509.CertPool
 }
 
 type Authenticator struct {
-	logger                *slog.Logger
-	vaultAddress          string
-	vaultNamespace        string
-	vaultAuthMountPath    string
-	vaultRole             string
-	keycloakTokenEndpoint string
-	keycloakClientID      string
-	keycloakClientSecret  string
-	httpClient            *http.Client
+	logger             *slog.Logger
+	vaultAddress       string
+	vaultNamespace     string
+	vaultAuthMountPath string
+	vaultRole          string
+	oauthTokenSource   *oauth.TokenSource
+	httpClient         *http.Client
 
 	mu          sync.Mutex
 	cachedToken string
@@ -91,8 +87,8 @@ func (b *AuthenticatorBuilder) SetVaultRole(value string) *AuthenticatorBuilder 
 	return b
 }
 
-func (b *AuthenticatorBuilder) SetKeycloakTokenEndpoint(value string) *AuthenticatorBuilder {
-	b.keycloakTokenEndpoint = value
+func (b *AuthenticatorBuilder) SetKeycloakIssuerURL(value string) *AuthenticatorBuilder {
+	b.keycloakIssuerURL = value
 	return b
 }
 
@@ -128,8 +124,8 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 		err = errors.New("vault role is mandatory")
 		return
 	}
-	if b.keycloakTokenEndpoint == "" {
-		err = errors.New("keycloak token endpoint is mandatory")
+	if b.keycloakIssuerURL == "" {
+		err = errors.New("keycloak issuer URL is mandatory")
 		return
 	}
 	if b.keycloakClientID == "" {
@@ -144,6 +140,28 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 		return
 	}
 
+	tokenStore, err := auth.NewMemoryTokenStore().
+		SetLogger(b.logger).
+		Build()
+	if err != nil {
+		err = fmt.Errorf("failed to create token store: %w", err)
+		return
+	}
+
+	oauthTokenSource, oauthErr := oauth.NewTokenSource().
+		SetLogger(b.logger).
+		SetFlow(oauth.CredentialsFlow).
+		SetIssuer(b.keycloakIssuerURL).
+		SetClientId(b.keycloakClientID).
+		SetClientSecret(b.keycloakClientSecret).
+		SetCaPool(b.caPool).
+		SetStore(tokenStore).
+		Build()
+	if oauthErr != nil {
+		err = fmt.Errorf("failed to create keycloak token source: %w", oauthErr)
+		return
+	}
+
 	httpClient, httpErr := newHTTPClient(b.caPool)
 	if httpErr != nil {
 		err = httpErr
@@ -151,15 +169,13 @@ func (b *AuthenticatorBuilder) Build() (result *Authenticator, err error) {
 	}
 
 	result = &Authenticator{
-		logger:                b.logger,
-		vaultAddress:          b.vaultAddress,
-		vaultNamespace:        b.vaultNamespace,
-		vaultAuthMountPath:    b.vaultAuthMountPath,
-		vaultRole:             b.vaultRole,
-		keycloakTokenEndpoint: b.keycloakTokenEndpoint,
-		keycloakClientID:      b.keycloakClientID,
-		keycloakClientSecret:  b.keycloakClientSecret,
-		httpClient:            httpClient,
+		logger:             b.logger,
+		vaultAddress:       b.vaultAddress,
+		vaultNamespace:     b.vaultNamespace,
+		vaultAuthMountPath: b.vaultAuthMountPath,
+		vaultRole:          b.vaultRole,
+		oauthTokenSource:   oauthTokenSource,
+		httpClient:         httpClient,
 	}
 	return
 }
@@ -174,12 +190,12 @@ func (a *Authenticator) VaultToken(ctx context.Context) (string, error) {
 	a.mu.Unlock()
 
 	result, err, _ := a.sfGroup.Do("vault-lifecycle-token", func() (any, error) {
-		keycloakJWT, _, kcErr := fetchKeycloakToken(ctx, a.httpClient, a.keycloakTokenEndpoint, a.keycloakClientID, a.keycloakClientSecret)
+		keycloakToken, kcErr := a.oauthTokenSource.Token(ctx)
 		if kcErr != nil {
 			return "", fmt.Errorf("failed to obtain keycloak token: %w", kcErr)
 		}
 
-		vaultToken, leaseDuration, err := a.loginToVault(ctx, keycloakJWT)
+		vaultToken, leaseDuration, err := a.loginToVault(ctx, keycloakToken.Access)
 		if err != nil {
 			return "", fmt.Errorf("failed to login to vault with JWT: %w", err)
 		}

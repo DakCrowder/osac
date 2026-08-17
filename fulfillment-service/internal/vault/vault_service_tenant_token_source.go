@@ -25,33 +25,30 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
+
+	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/oauth"
 )
 
 type ServiceTenantTokenSourceBuilder struct {
-	logger                *slog.Logger
-	vaultAddress          string
-	parentNamespace       string
-	keycloakTokenEndpoint string
-	keycloakClientID      string
-	keycloakClientSecret  string
-	caPool                *x509.CertPool
+	logger               *slog.Logger
+	vaultAddress         string
+	parentNamespace      string
+	keycloakIssuerURL    string
+	keycloakClientID     string
+	keycloakClientSecret string
+	caPool               *x509.CertPool
 }
 
 type ServiceTenantTokenSource struct {
-	logger                *slog.Logger
-	vaultAddress          string
-	parentNamespace       string
-	keycloakTokenEndpoint string
-	keycloakClientID      string
-	keycloakClientSecret  string
-	httpClient            *http.Client
+	logger           *slog.Logger
+	vaultAddress     string
+	parentNamespace  string
+	oauthTokenSource *oauth.TokenSource
+	httpClient       *http.Client
 
 	mu           sync.Mutex
 	tenantTokens map[string]cachedToken
-
-	kcMu          sync.Mutex
-	cachedKCToken string
-	kcTokenExpiry time.Time
 
 	sfGroup singleflight.Group
 }
@@ -80,8 +77,8 @@ func (b *ServiceTenantTokenSourceBuilder) SetParentNamespace(value string) *Serv
 	return b
 }
 
-func (b *ServiceTenantTokenSourceBuilder) SetKeycloakTokenEndpoint(value string) *ServiceTenantTokenSourceBuilder {
-	b.keycloakTokenEndpoint = value
+func (b *ServiceTenantTokenSourceBuilder) SetKeycloakIssuerURL(value string) *ServiceTenantTokenSourceBuilder {
+	b.keycloakIssuerURL = value
 	return b
 }
 
@@ -113,8 +110,8 @@ func (b *ServiceTenantTokenSourceBuilder) Build() (result *ServiceTenantTokenSou
 		err = errors.New("parent namespace is mandatory")
 		return
 	}
-	if b.keycloakTokenEndpoint == "" {
-		err = errors.New("keycloak token endpoint is mandatory")
+	if b.keycloakIssuerURL == "" {
+		err = errors.New("keycloak issuer URL is mandatory")
 		return
 	}
 	if b.keycloakClientID == "" {
@@ -126,6 +123,28 @@ func (b *ServiceTenantTokenSourceBuilder) Build() (result *ServiceTenantTokenSou
 		return
 	}
 
+	tokenStore, err := auth.NewMemoryTokenStore().
+		SetLogger(b.logger).
+		Build()
+	if err != nil {
+		err = fmt.Errorf("failed to create token store: %w", err)
+		return
+	}
+
+	oauthTokenSource, oauthErr := oauth.NewTokenSource().
+		SetLogger(b.logger).
+		SetFlow(oauth.CredentialsFlow).
+		SetIssuer(b.keycloakIssuerURL).
+		SetClientId(b.keycloakClientID).
+		SetClientSecret(b.keycloakClientSecret).
+		SetCaPool(b.caPool).
+		SetStore(tokenStore).
+		Build()
+	if oauthErr != nil {
+		err = fmt.Errorf("failed to create keycloak token source: %w", oauthErr)
+		return
+	}
+
 	httpClient, httpErr := newHTTPClient(b.caPool)
 	if httpErr != nil {
 		err = httpErr
@@ -133,14 +152,12 @@ func (b *ServiceTenantTokenSourceBuilder) Build() (result *ServiceTenantTokenSou
 	}
 
 	result = &ServiceTenantTokenSource{
-		logger:                b.logger,
-		vaultAddress:          b.vaultAddress,
-		parentNamespace:       b.parentNamespace,
-		keycloakTokenEndpoint: b.keycloakTokenEndpoint,
-		keycloakClientID:      b.keycloakClientID,
-		keycloakClientSecret:  b.keycloakClientSecret,
-		httpClient:            httpClient,
-		tenantTokens:          make(map[string]cachedToken),
+		logger:           b.logger,
+		vaultAddress:     b.vaultAddress,
+		parentNamespace:  b.parentNamespace,
+		oauthTokenSource: oauthTokenSource,
+		httpClient:       httpClient,
+		tenantTokens:     make(map[string]cachedToken),
 	}
 	return
 }
@@ -159,7 +176,7 @@ func (s *ServiceTenantTokenSource) VaultToken(ctx context.Context, tenant string
 	s.mu.Unlock()
 
 	result, err, _ := s.sfGroup.Do(tenant, func() (any, error) {
-		keycloakJWT, kcErr := s.fetchKeycloakToken(ctx)
+		keycloakToken, kcErr := s.oauthTokenSource.Token(ctx)
 		if kcErr != nil {
 			return "", fmt.Errorf("failed to obtain keycloak token: %w", kcErr)
 		}
@@ -172,7 +189,7 @@ func (s *ServiceTenantTokenSource) VaultToken(ctx context.Context, tenant string
 			namespace,
 			TenantAuthMountPath,
 			ServiceAuthRole,
-			keycloakJWT,
+			keycloakToken.Access,
 		)
 		if loginErr != nil {
 			return "", fmt.Errorf("failed to login to vault for tenant %q: %w", tenant, loginErr)
@@ -200,26 +217,4 @@ func (s *ServiceTenantTokenSource) VaultToken(ctx context.Context, tenant string
 		return "", err
 	}
 	return result.(string), nil
-}
-
-func (s *ServiceTenantTokenSource) fetchKeycloakToken(ctx context.Context) (string, error) {
-	s.kcMu.Lock()
-	if s.cachedKCToken != "" && time.Until(s.kcTokenExpiry) > 30*time.Second {
-		token := s.cachedKCToken
-		s.kcMu.Unlock()
-		return token, nil
-	}
-	s.kcMu.Unlock()
-
-	token, expiresIn, err := fetchKeycloakToken(ctx, s.httpClient, s.keycloakTokenEndpoint, s.keycloakClientID, s.keycloakClientSecret)
-	if err != nil {
-		return "", err
-	}
-
-	s.kcMu.Lock()
-	s.cachedKCToken = token
-	s.kcTokenExpiry = time.Now().Add(time.Duration(expiresIn) * time.Second)
-	s.kcMu.Unlock()
-
-	return token, nil
 }

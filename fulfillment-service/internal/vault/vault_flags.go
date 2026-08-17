@@ -26,7 +26,7 @@ type BaseConfig struct {
 	Namespace                string
 	KVMountPath              string
 	CaCertFile               string
-	KeycloakTokenEndpoint    string
+	KeycloakIssuerURL        string
 	KeycloakClientID         string
 	KeycloakClientSecretFile string
 }
@@ -34,10 +34,9 @@ type BaseConfig struct {
 // LifecycleConfig holds the additional settings needed for tenant
 // namespace lifecycle management in Vault.
 type LifecycleConfig struct {
-	Role              string
-	MountPath         string
-	KeycloakIssuerURL string
-	KeycloakAudience  string
+	Role             string
+	MountPath        string
+	KeycloakAudience string
 }
 
 func getString(flags *pflag.FlagSet, name string) (string, error) {
@@ -71,9 +70,9 @@ func AddBaseFlags(flags *pflag.FlagSet) {
 		caCertFileFlagHelp,
 	)
 	_ = flags.String(
-		keycloakTokenEndpointFlagName,
+		keycloakIssuerURLFlagName,
 		"",
-		keycloakTokenEndpointFlagHelp,
+		keycloakIssuerURLFlagHelp,
 	)
 	_ = flags.String(
 		keycloakClientIDFlagName,
@@ -101,11 +100,6 @@ func AddLifecycleFlags(flags *pflag.FlagSet) {
 		lifecycleMountPathFlagHelp,
 	)
 	_ = flags.String(
-		keycloakIssuerURLFlagName,
-		"",
-		keycloakIssuerURLFlagHelp,
-	)
-	_ = flags.String(
 		keycloakAudienceFlagName,
 		"osac-api",
 		keycloakAudienceFlagHelp,
@@ -130,7 +124,7 @@ func BaseConfigFromFlags(flags *pflag.FlagSet) (BaseConfig, error) {
 	if err != nil {
 		return BaseConfig{}, err
 	}
-	tokenEndpoint, err := getString(flags, keycloakTokenEndpointFlagName)
+	issuerURL, err := getString(flags, keycloakIssuerURLFlagName)
 	if err != nil {
 		return BaseConfig{}, err
 	}
@@ -147,7 +141,7 @@ func BaseConfigFromFlags(flags *pflag.FlagSet) (BaseConfig, error) {
 		Namespace:                namespace,
 		KVMountPath:              kvMountPath,
 		CaCertFile:               caCertFile,
-		KeycloakTokenEndpoint:    tokenEndpoint,
+		KeycloakIssuerURL:        issuerURL,
 		KeycloakClientID:         clientID,
 		KeycloakClientSecretFile: clientSecretFile,
 	}, nil
@@ -163,30 +157,25 @@ func LifecycleConfigFromFlags(flags *pflag.FlagSet) (LifecycleConfig, error) {
 	if err != nil {
 		return LifecycleConfig{}, err
 	}
-	issuerURL, err := getString(flags, keycloakIssuerURLFlagName)
-	if err != nil {
-		return LifecycleConfig{}, err
-	}
 	audience, err := getString(flags, keycloakAudienceFlagName)
 	if err != nil {
 		return LifecycleConfig{}, err
 	}
 
 	return LifecycleConfig{
-		Role:              role,
-		MountPath:         mountPath,
-		KeycloakIssuerURL: issuerURL,
-		KeycloakAudience:  audience,
+		Role:             role,
+		MountPath:        mountPath,
+		KeycloakAudience: audience,
 	}, nil
 }
 
 // ValidateBaseKeycloakConfig checks that the Keycloak client credential
 // fields are set.
 func ValidateBaseKeycloakConfig(cfg BaseConfig) error {
-	if cfg.KeycloakTokenEndpoint == "" {
+	if cfg.KeycloakIssuerURL == "" {
 		return fmt.Errorf(
 			"flag '--%s' is required when '--%s' is set",
-			keycloakTokenEndpointFlagName, endpointFlagName,
+			keycloakIssuerURLFlagName, endpointFlagName,
 		)
 	}
 	if cfg.KeycloakClientID == "" {
@@ -205,12 +194,6 @@ func ValidateBaseKeycloakConfig(cfg BaseConfig) error {
 }
 
 func ValidateLifecycleConfig(cfg LifecycleConfig) error {
-	if cfg.KeycloakIssuerURL == "" {
-		return fmt.Errorf(
-			"flag '--%s' is required when '--%s' is set",
-			keycloakIssuerURLFlagName, endpointFlagName,
-		)
-	}
 	if cfg.Role == "" {
 		return fmt.Errorf(
 			"flag '--%s' is required when '--%s' is set",
@@ -229,7 +212,6 @@ const (
 	lifecycleMountPathFlagName       = "vault-lifecycle-mount-path"
 	keycloakIssuerURLFlagName        = "vault-keycloak-issuer-url"
 	keycloakAudienceFlagName         = "vault-keycloak-audience"
-	keycloakTokenEndpointFlagName    = "vault-keycloak-token-endpoint"
 	keycloakClientIDFlagName         = "vault-keycloak-client-id"
 	keycloakClientSecretFileFlagName = "vault-keycloak-client-secret-file"
 	caCertFileFlagName               = "vault-ca-cert-file"
@@ -266,11 +248,6 @@ used to configure JWT auth in tenant Vault namespaces.
 const keycloakAudienceFlagHelp = `
 _AUDIENCE_ - Expected audience claim in Keycloak JWTs for Vault
 JWT auth role configuration.
-`
-
-const keycloakTokenEndpointFlagHelp = `
-_URL_ - Keycloak token endpoint URL used to obtain JWTs for
-Vault authentication.
 `
 
 const keycloakClientIDFlagHelp = `

@@ -178,7 +178,7 @@ spec:
         {{- if .Values.vault.caBundle.configMap }}
         - --vault-ca-cert-file=/etc/fulfillment-grpc-server/vault-cas/bundle.pem
         {{- end }}
-        - --vault-keycloak-token-endpoint={{ .Values.vault.keycloakTokenEndpoint }}
+        - --vault-keycloak-issuer-url={{ .Values.vault.keycloakIssuerUrl }}
         - --vault-keycloak-client-id={{ .Values.vault.keycloakClientId }}
         - --vault-keycloak-client-secret-file=/etc/fulfillment-grpc-server/vault/client-secret
         {{- end }}

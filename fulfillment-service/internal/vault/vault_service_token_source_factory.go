@@ -49,7 +49,7 @@ func NewServiceTenantTokenSourceFromConfig(
 		SetLogger(logger).
 		SetVaultAddress(base.Endpoint).
 		SetParentNamespace(base.Namespace).
-		SetKeycloakTokenEndpoint(base.KeycloakTokenEndpoint).
+		SetKeycloakIssuerURL(base.KeycloakIssuerURL).
 		SetKeycloakClientID(base.KeycloakClientID).
 		SetKeycloakClientSecret(keycloakClientSecret).
 		SetCaPool(caPool).
