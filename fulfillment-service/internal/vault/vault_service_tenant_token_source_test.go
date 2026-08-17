@@ -38,6 +38,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 
 	newKeycloakHandler := func(expectedClientID, expectedSecret, returnToken string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			defer GinkgoRecover()
 			body, _ := io.ReadAll(r.Body)
 			Expect(string(body)).To(ContainSubstring("grant_type=client_credentials"))
 			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("client_id=%s", expectedClientID)))
@@ -54,6 +55,7 @@ var _ = Describe("ServiceTenantTokenSource", func() {
 
 	newVaultHandler := func(expectedJWT, expectedNamespace, returnToken string, leaseDuration int) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			defer GinkgoRecover()
 			Expect(r.URL.Path).To(Equal("/v1/auth/jwt/login"))
 			Expect(r.Header.Get("X-Vault-Namespace")).To(Equal(expectedNamespace))
 

@@ -178,10 +178,15 @@ func (s *ServiceTenantTokenSource) VaultToken(ctx context.Context, tenant string
 			return "", fmt.Errorf("failed to login to vault for tenant %q: %w", tenant, loginErr)
 		}
 
+		ttl := time.Duration(leaseDuration) * time.Second
+		if ttl <= 0 {
+			ttl = 5 * time.Minute
+		}
+
 		s.mu.Lock()
 		s.tenantTokens[tenant] = cachedToken{
 			token:  vaultToken,
-			expiry: time.Now().Add(time.Duration(leaseDuration) * time.Second),
+			expiry: time.Now().Add(ttl),
 		}
 		s.mu.Unlock()
 
