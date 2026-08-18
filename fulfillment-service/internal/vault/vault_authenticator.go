@@ -30,15 +30,15 @@ import (
 )
 
 type AuthenticatorBuilder struct {
-	logger             *slog.Logger
-	vaultAddress       string
-	vaultNamespace     string
-	vaultAuthMountPath string
-	vaultRole          string
-	keycloakIssuerURL  string
-	keycloakClientID   string
+	logger               *slog.Logger
+	vaultAddress         string
+	vaultNamespace       string
+	vaultAuthMountPath   string
+	vaultRole            string
+	keycloakIssuerURL    string
+	keycloakClientID     string
 	keycloakClientSecret string
-	caPool             *x509.CertPool
+	caPool               *x509.CertPool
 }
 
 type Authenticator struct {
