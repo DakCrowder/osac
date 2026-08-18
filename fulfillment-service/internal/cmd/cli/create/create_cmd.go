@@ -43,6 +43,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/hub"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/instancetype"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/natgateway"
+	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/secret"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/securitygroup"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/storagebackend"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/create/storagetier"
@@ -80,6 +81,7 @@ func Cmd() *cobra.Command {
 	result.AddCommand(natgateway.Cmd())
 	result.AddCommand(virtualnetwork.Cmd())
 	result.AddCommand(subnet.Cmd())
+	result.AddCommand(secret.Cmd())
 	result.AddCommand(securitygroup.Cmd())
 	result.AddCommand(help.MarkPrivateAPI(storagebackend.Cmd()))
 	result.AddCommand(help.MarkPrivateAPI(storagetier.Cmd()))
