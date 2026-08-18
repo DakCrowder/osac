@@ -182,8 +182,15 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return c.watch(ctx, args[1:])
 	}
 
-	// Get the objects using the list method, which will handle filtering by identifiers or names if provided.
-	objects, err := c.list(ctx, args[1:])
+	// Get the objects. When specific keys are provided with structured output for resource types
+	// that are flagged with UseGetForStructuredOutput, fetch each object individually via Get.
+	keys := args[1:]
+	var objects []proto.Message
+	if len(keys) > 0 && c.args.format != outputFormatTable && c.objectHelper.UseGetForStructuredOutput() {
+		objects, err = c.getByKeys(ctx, keys)
+	} else {
+		objects, err = c.list(ctx, keys)
+	}
 	if err != nil {
 		return err
 	}
@@ -199,6 +206,23 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		render = c.renderTable
 	}
 	return render(ctx, objects)
+}
+
+func (c *runnerContext) getByKeys(ctx context.Context, keys []string) ([]proto.Message, error) {
+	listResults, err := c.list(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]proto.Message, len(listResults))
+	for i, obj := range listResults {
+		id := c.objectHelper.GetId(obj)
+		result, err := c.objectHelper.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		results[i] = result
+	}
+	return results, nil
 }
 
 func (c *runnerContext) list(ctx context.Context, keys []string) (results []proto.Message, err error) {

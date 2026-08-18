@@ -77,6 +77,7 @@ type ObjectHelper interface {
 	SetTenant(object proto.Message, tenant string)
 	GetTenant(object proto.Message) string
 	IsTenantScoped() bool
+	UseGetForStructuredOutput() bool
 }
 
 // HelperBuilder contains the data and logic needed to create a reflection helper.
@@ -776,6 +777,18 @@ func (h *objectHelper) GetTenant(object proto.Message) string {
 // IsTenantScoped returns true if this resource type is scoped to a tenant.
 func (h *objectHelper) IsTenantScoped() bool {
 	return h.tenantScoped
+}
+
+// UseGetForStructuredOutput returns true if the Get RPC should be used instead of List when
+// fetching specific objects for structured output (yaml/json).
+func (h *objectHelper) UseGetForStructuredOutput() bool {
+	return objectTypesUsingGetForOutput[h.descriptor.Name()]
+}
+
+// objectTypesUsingGetForOutput lists resource types where the Get RPC should be used
+// instead of List when fetching specific objects for structured output (yaml/json).
+var objectTypesUsingGetForOutput = map[protoreflect.Name]bool{
+	"Secret": true,
 }
 
 func (h *objectHelper) setId(message proto.Message, field protoreflect.FieldDescriptor, value string) {

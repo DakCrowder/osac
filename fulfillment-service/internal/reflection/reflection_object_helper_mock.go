@@ -296,3 +296,17 @@ func (mr *MockObjectHelperMockRecorder) Update(ctx, object any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockObjectHelper)(nil).Update), ctx, object)
 }
+
+// UseGetForStructuredOutput mocks base method.
+func (m *MockObjectHelper) UseGetForStructuredOutput() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UseGetForStructuredOutput")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UseGetForStructuredOutput indicates an expected call of UseGetForStructuredOutput.
+func (mr *MockObjectHelperMockRecorder) UseGetForStructuredOutput() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UseGetForStructuredOutput", reflect.TypeOf((*MockObjectHelper)(nil).UseGetForStructuredOutput))
+}
