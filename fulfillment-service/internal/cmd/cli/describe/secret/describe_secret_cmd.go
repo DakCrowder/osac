@@ -16,7 +16,6 @@ package secret
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"sort"
 	"text/tabwriter"
 
@@ -26,7 +25,6 @@ import (
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/lookup"
 	"github.com/osac-project/osac/fulfillment-service/internal/config"
-	"github.com/osac-project/osac/fulfillment-service/internal/logging"
 	"github.com/osac-project/osac/fulfillment-service/internal/terminal"
 )
 
@@ -45,7 +43,6 @@ func Cmd() *cobra.Command {
 }
 
 type runnerContext struct {
-	logger  *slog.Logger
 	console *terminal.Console
 }
 
@@ -54,7 +51,6 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 
 	ctx := cmd.Context()
 
-	c.logger = logging.LoggerFromContext(ctx)
 	c.console = terminal.ConsoleFromContext(ctx)
 
 	cfg := config.SettingsFromContext(ctx)
