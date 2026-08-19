@@ -163,11 +163,16 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For resource types that rae flagged with UseGetForStructuredOutput,
-	// fetch each object individually via Get.
-	object, err = c.helper.Get(ctx, c.helper.GetId(object))
-	if err != nil {
-		return fmt.Errorf("failed to get full object: %w", err)
+	// For resource types that are flagged with UseGetForStructuredOutput,
+	// fetch the object individually via Get.
+	//
+	// Note: this is done after FindObject rather than in place of, as FindObject
+	// handles filtering and error messaging for cases like ambiguous matches.
+	if c.helper.UseGetForStructuredOutput() {
+		object, err = c.helper.Get(ctx, c.helper.GetId(object))
+		if err != nil {
+			return fmt.Errorf("failed to get full object: %w", err)
+		}
 	}
 
 	// Render the object:
