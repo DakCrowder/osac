@@ -182,15 +182,9 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return c.watch(ctx, args[1:])
 	}
 
-	// Get the objects. When specific keys are provided with structured output for resource types
-	// that are flagged with UseGetForStructuredOutput, fetch each object individually via Get.
+	// Get the objects:
 	keys := args[1:]
-	var objects []proto.Message
-	if len(keys) > 0 && c.args.format != outputFormatTable && c.objectHelper.UseGetForStructuredOutput() {
-		objects, err = c.getByKeys(ctx, keys)
-	} else {
-		objects, err = c.list(ctx, keys)
-	}
+	objects, err := c.fetchObjects(ctx, keys)
 	if err != nil {
 		return err
 	}
@@ -206,6 +200,16 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		render = c.renderTable
 	}
 	return render(ctx, objects)
+}
+
+// fetchObjects returns objects for the given keys. When specific keys are provided with structured
+// output for resource types flagged with UseGetForStructuredOutput, each object is fetched
+// individually via Get to obtain the full representation.
+func (c *runnerContext) fetchObjects(ctx context.Context, keys []string) ([]proto.Message, error) {
+	if len(keys) > 0 && c.args.format != outputFormatTable && c.objectHelper.UseGetForStructuredOutput() {
+		return c.getByKeys(ctx, keys)
+	}
+	return c.list(ctx, keys)
 }
 
 func (c *runnerContext) getByKeys(ctx context.Context, keys []string) ([]proto.Message, error) {

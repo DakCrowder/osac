@@ -158,21 +158,9 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	key := args[1]
 
 	// Find the object by identifier or name:
-	object, err := c.helper.FindObject(ctx, key, c.console)
+	object, err := c.fetchObject(ctx, key)
 	if err != nil {
 		return err
-	}
-
-	// For resource types that are flagged with UseGetForStructuredOutput,
-	// fetch the object individually via Get.
-	//
-	// Note: this is done after FindObject rather than in place of, as FindObject
-	// handles filtering and error messaging for cases like ambiguous matches.
-	if c.helper.UseGetForStructuredOutput() {
-		object, err = c.helper.Get(ctx, c.helper.GetId(object))
-		if err != nil {
-			return fmt.Errorf("failed to get full object: %w", err)
-		}
 	}
 
 	// Render the object:
@@ -286,6 +274,23 @@ func (c *runnerContext) findEditor(ctx context.Context) string {
 		slog.String("default", defaultEditor),
 	)
 	return defaultEditor
+}
+
+// fetchObject resolves a key to an object via FindObject, then re-fetches via Get for resource
+// types flagged with UseGetForStructuredOutput. This is done after FindObject rather than in
+// place of, as FindObject handles filtering and error messaging for cases like ambiguous matches.
+func (c *runnerContext) fetchObject(ctx context.Context, key string) (proto.Message, error) {
+	object, err := c.helper.FindObject(ctx, key, c.console)
+	if err != nil {
+		return nil, err
+	}
+	if c.helper.UseGetForStructuredOutput() {
+		object, err = c.helper.Get(ctx, c.helper.GetId(object))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get full object: %w", err)
+		}
+	}
+	return object, nil
 }
 
 func (c *runnerContext) update(ctx context.Context, object proto.Message) (result proto.Message, err error) {

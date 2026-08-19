@@ -16,13 +16,16 @@ package edit
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/ginkgo/v2/dsl/table"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/reflection"
@@ -106,6 +109,60 @@ var _ = Describe("Edit command", func() {
 		Entry("public identity provider is not watchable", "identityprovider", map[string]int{"osac.public.v1": 0}, false),
 		Entry("private hub is watchable", "hub", map[string]int{"osac.private.v1": 0}, true),
 	)
+
+	Describe("fetchObject", func() {
+		var (
+			ctrl       *gomock.Controller
+			mockHelper *reflection.MockObjectHelper
+		)
+
+		BeforeEach(func() {
+			ctrl = gomock.NewController(GinkgoT())
+			DeferCleanup(ctrl.Finish)
+			mockHelper = reflection.NewMockObjectHelper(ctrl)
+		})
+
+		It("should call Get after FindObject when UseGetForStructuredOutput is true", func() {
+			listObject := &publicv1.Cluster{Id: "cluster-1", Metadata: &publicv1.Metadata{Name: "my-cluster"}}
+			fullObject := &publicv1.Cluster{Id: "cluster-1", Metadata: &publicv1.Metadata{Name: "my-cluster"}}
+
+			mockHelper.EXPECT().FindObject(gomock.Any(), "my-cluster", gomock.Any()).Return(listObject, nil)
+			mockHelper.EXPECT().UseGetForStructuredOutput().Return(true)
+			mockHelper.EXPECT().GetId(listObject).Return("cluster-1")
+			mockHelper.EXPECT().Get(gomock.Any(), "cluster-1").Return(fullObject, nil)
+
+			runner := &runnerContext{helper: mockHelper, console: console}
+			result, err := runner.fetchObject(ctx, "my-cluster")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(proto.Equal(result, fullObject)).To(BeTrue())
+		})
+
+		It("should return error when Get fails with UseGetForStructuredOutput enabled", func() {
+			listObject := &publicv1.Cluster{Id: "cluster-1"}
+
+			mockHelper.EXPECT().FindObject(gomock.Any(), "my-cluster", gomock.Any()).Return(listObject, nil)
+			mockHelper.EXPECT().UseGetForStructuredOutput().Return(true)
+			mockHelper.EXPECT().GetId(listObject).Return("cluster-1")
+			mockHelper.EXPECT().Get(gomock.Any(), "cluster-1").Return(nil, fmt.Errorf("not found"))
+
+			runner := &runnerContext{helper: mockHelper, console: console}
+			_, err := runner.fetchObject(ctx, "my-cluster")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get full object"))
+		})
+
+		It("should not call Get when UseGetForStructuredOutput is false", func() {
+			listObject := &publicv1.Cluster{Id: "cluster-1", Metadata: &publicv1.Metadata{Name: "my-cluster"}}
+
+			mockHelper.EXPECT().FindObject(gomock.Any(), "my-cluster", gomock.Any()).Return(listObject, nil)
+			mockHelper.EXPECT().UseGetForStructuredOutput().Return(false)
+
+			runner := &runnerContext{helper: mockHelper, console: console}
+			result, err := runner.fetchObject(ctx, "my-cluster")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(proto.Equal(result, listObject)).To(BeTrue())
+		})
+	})
 
 	Describe("showWatchSuggestion", func() {
 		It("should render watch suggestion with object type and ID", func() {
