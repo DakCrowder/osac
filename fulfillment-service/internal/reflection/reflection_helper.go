@@ -84,10 +84,10 @@ type ObjectHelper interface {
 //
 // Don't create instances of this type directly, use the NewHelper function instead.
 type HelperBuilder struct {
-	logger                     *slog.Logger
-	connection                 *grpc.ClientConn
-	packages                   map[string]int
-	tenantFunc                 any
+	logger                      *slog.Logger
+	connection                  *grpc.ClientConn
+	packages                    map[string]int
+	tenantFunc                  any
 	getForStructuredOutputTypes map[protoreflect.Name]bool
 }
 
@@ -385,7 +385,7 @@ func (h *helper) scanService(serviceDesc protoreflect.ServiceDescriptor) {
 		plural:                    objectNamePlural,
 		tenantScoped:              !platformScopedTypes[objectDesc.Name()],
 		useGetForStructuredOutput: h.getForStructuredOutputTypes[objectDesc.Name()],
-		template:      objectTemplate,
+		template:                  objectTemplate,
 		get: getInfo{
 			methodInfo: methodInfo{
 				path:     h.makeMethodPath(getDesc),
@@ -588,20 +588,20 @@ func (h *helper) makeTemplate(messageDesc protoreflect.MessageDescriptor) proto.
 
 // objectHelper is the default implementation of the ObjectHelper interface.
 type objectHelper struct {
-	parent                     *helper
-	descriptor                 protoreflect.MessageDescriptor
-	singular                   string
-	plural                     string
-	tenantScoped               bool
-	useGetForStructuredOutput  bool
-	template                   proto.Message
-	list                       listInfo
-	get                        getInfo
-	create                     createInfo
-	update                     updateInfo
-	delete                     deleteInfo
-	idField                    protoreflect.FieldDescriptor
-	metadataField              protoreflect.FieldDescriptor
+	parent                    *helper
+	descriptor                protoreflect.MessageDescriptor
+	singular                  string
+	plural                    string
+	tenantScoped              bool
+	useGetForStructuredOutput bool
+	template                  proto.Message
+	list                      listInfo
+	get                       getInfo
+	create                    createInfo
+	update                    updateInfo
+	delete                    deleteInfo
+	idField                   protoreflect.FieldDescriptor
+	metadataField             protoreflect.FieldDescriptor
 }
 
 type methodInfo struct {
