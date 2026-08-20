@@ -118,6 +118,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		SetConnection(c.conn).
 		AddPackages(cfg.Packages()).
 		SetTenantFunc(config.TenantFromContext).
+		UseGetForStructuredOutput(&publicv1.Secret{}).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create reflection tool: %w", err)
@@ -277,8 +278,8 @@ func (c *runnerContext) findEditor(ctx context.Context) string {
 }
 
 // fetchObject resolves a key to an object via FindObject, then re-fetches via Get for resource
-// types flagged with UseGetForStructuredOutput. This is done after FindObject rather than in
-// place of, as FindObject handles filtering and error messaging for cases like ambiguous matches.
+// types configured to use Get for structured output (e.g. secrets, where List redacts data).
+// Re-fetch happens after FindObject because FindObject handles ambiguous-match error messaging.
 func (c *runnerContext) fetchObject(ctx context.Context, key string) (proto.Message, error) {
 	object, err := c.helper.FindObject(ctx, key, c.console)
 	if err != nil {

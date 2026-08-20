@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/get/externalippool"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/get/kubeconfig"
 	"github.com/osac-project/osac/fulfillment-service/internal/cmd/cli/get/password"
@@ -146,6 +147,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		SetConnection(c.conn).
 		AddPackages(cfg.Packages()).
 		SetTenantFunc(config.TenantFromContext).
+		UseGetForStructuredOutput(&publicv1.Secret{}).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create reflection tool: %w", err)
@@ -202,9 +204,17 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	return render(ctx, objects)
 }
 
-// fetchObjects returns objects for the given keys. When specific keys are provided with structured
-// output for resource types flagged with UseGetForStructuredOutput, each object is fetched
-// individually via Get to obtain the full representation.
+// fetchObjects returns objects for the given keys.
+// For cases when:
+//  1. Object names or identifiers are provided
+//  2. The output format is specified as yaml or json
+//  3. The resource type is configured to use Get for structured output
+//
+// We fetch the objects individually via Get to obtain the full representation.
+//
+// Otherwise, we fetch the objects via List.
+// This can result in partial data for resources like secrets where the data field is redacted
+// when list is called and no names or identifiers are provided.
 func (c *runnerContext) fetchObjects(ctx context.Context, keys []string) ([]proto.Message, error) {
 	if len(keys) > 0 && c.args.format != outputFormatTable && c.objectHelper.UseGetForStructuredOutput() {
 		return c.getByKeys(ctx, keys)
@@ -222,7 +232,7 @@ func (c *runnerContext) getByKeys(ctx context.Context, keys []string) ([]proto.M
 		id := c.objectHelper.GetId(obj)
 		result, err := c.objectHelper.Get(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get object: %w", err)
 		}
 		results[i] = result
 	}
