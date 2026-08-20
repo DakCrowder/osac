@@ -68,7 +68,7 @@ func (c *Container) Start(ctx context.Context) error {
 	c.configFile = configFile
 
 	c.id = fmt.Sprintf("osac-metering-db-%08x", rand.Uint32())
-	c.runCmd = exec.CommandContext(ctx,
+	c.runCmd = exec.Command(
 		c.tool,
 		"run",
 		"--name", c.id,
