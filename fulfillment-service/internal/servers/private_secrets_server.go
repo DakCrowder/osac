@@ -170,7 +170,12 @@ func (s *PrivateSecretsServer) Get(ctx context.Context,
 		obj.SetData(data)
 	}
 
-	if s.hubSecretFetcher != nil && obj.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_HUB {
+	if obj.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_HUB {
+		if s.hubSecretFetcher == nil {
+			err = grpcstatus.Errorf(grpccodes.FailedPrecondition,
+				"hub secret retrieval is not configured")
+			return
+		}
 		data, fetchErr := s.hubSecretFetcher.Fetch(ctx, obj.GetCoordinates())
 		if fetchErr != nil {
 			err = fetchErr

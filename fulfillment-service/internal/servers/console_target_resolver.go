@@ -262,4 +262,3 @@ func (l *privateServerCILookup) GetForConsole(ctx context.Context, id string) (*
 		HubID: ciStatus.GetHub(),
 	}, nil
 }
-

@@ -95,6 +95,14 @@ func (f *hubSecretFetcher) Fetch(ctx context.Context, coordinates map[string]str
 		Name:      secretName,
 	}, secret)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, status.Errorf(codes.Canceled,
+				"request canceled while reading secret %s/%s from hub %q", namespace, secretName, hubID)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, status.Errorf(codes.DeadlineExceeded,
+				"request timed out while reading secret %s/%s from hub %q", namespace, secretName, hubID)
+		}
 		return nil, classifyKubeError(err, hubID, namespace, secretName)
 	}
 
@@ -125,22 +133,21 @@ func classifyKubeError(err error, hubID, namespace, secretName string) error {
 	}
 	if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) || apierrors.IsServiceUnavailable(err) {
 		return status.Errorf(codes.Unavailable,
-			"hub %q is unavailable: %v", hubID, err)
+			"hub %q is unavailable", hubID)
 	}
 	var netErr interface{ Timeout() bool }
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return status.Errorf(codes.Unavailable,
-			"hub %q is unavailable: %v", hubID, err)
+			"hub %q is unavailable", hubID)
 	}
 	if apierrors.IsUnauthorized(err) {
 		return status.Errorf(codes.Unauthenticated,
-			"authentication failed for secret %s/%s on hub %q: %v", namespace, secretName, hubID, err)
+			"authentication failed for secret %s/%s on hub %q", namespace, secretName, hubID)
 	}
 	if apierrors.IsForbidden(err) {
 		return status.Errorf(codes.PermissionDenied,
-			"access denied to secret %s/%s on hub %q: %v", namespace, secretName, hubID, err)
+			"access denied to secret %s/%s on hub %q", namespace, secretName, hubID)
 	}
 	return status.Errorf(codes.Internal,
-		"failed to read secret %s/%s from hub %q: %v", namespace, secretName, hubID, err)
+		"failed to read secret %s/%s from hub %q", namespace, secretName, hubID)
 }
-

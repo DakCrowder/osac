@@ -152,14 +152,18 @@ func (p *hubClientProvider) GetClient(ctx context.Context, hubID string) (*HubCl
 			return nil, classifyHubLookupError(err, hubID)
 		}
 
+		if namespace == "" {
+			return nil, status.Errorf(codes.Internal, "hub %q returned an empty namespace", hubID)
+		}
+
 		config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to parse kubeconfig for hub %q: %v", hubID, err)
+			return nil, status.Errorf(codes.Internal, "failed to parse kubeconfig for hub %q", hubID)
 		}
 
 		client, err := p.hubClientFactory(config)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create client for hub %q: %v", hubID, err)
+			return nil, status.Errorf(codes.Internal, "failed to create client for hub %q", hubID)
 		}
 
 		info := &HubClientInfo{
@@ -186,10 +190,10 @@ func classifyHubLookupError(err error, hubID string) error {
 		case codes.NotFound:
 			return status.Errorf(codes.NotFound, "hub %q not found", hubID)
 		case codes.Unavailable:
-			return status.Errorf(codes.Unavailable, "hub %q is unavailable: %v", hubID, st.Message())
+			return status.Errorf(codes.Unavailable, "hub %q is unavailable", hubID)
 		default:
-			return status.Errorf(st.Code(), "failed to look up hub %q: %v", hubID, st.Message())
+			return status.Errorf(st.Code(), "failed to look up hub %q", hubID)
 		}
 	}
-	return status.Errorf(codes.Internal, "failed to look up hub %q: %v", hubID, err)
+	return status.Errorf(codes.Internal, "failed to look up hub %q", hubID)
 }
