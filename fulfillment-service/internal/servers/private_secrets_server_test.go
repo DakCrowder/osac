@@ -653,12 +653,13 @@ var _ = Describe("Private secrets server", func() {
 				}.Build())
 				Expect(err).ToNot(HaveOccurred())
 
-				getResponse, err := server.Get(ctx, privatev1.SecretsGetRequest_builder{
+				_, err = server.Get(ctx, privatev1.SecretsGetRequest_builder{
 					Id: created.GetObject().GetId(),
 				}.Build())
-				Expect(err).ToNot(HaveOccurred())
-				Expect(getResponse.GetObject().GetBackend()).To(Equal(
-					privatev1.SecretBackend_SECRET_BACKEND_HUB))
+				Expect(err).To(HaveOccurred())
+				st, ok := status.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(st.Code()).To(Equal(codes.FailedPrecondition))
 			})
 		})
 
@@ -1012,7 +1013,7 @@ var _ = Describe("Private secrets server", func() {
 				privatev1.SecretBackend_SECRET_BACKEND_VAULT))
 		})
 
-		It("Hub secret without fetcher returns empty resolved_data", func() {
+		It("Hub secret without fetcher returns FailedPrecondition", func() {
 			serverNoFetcher, err := NewPrivateSecretsServer().
 				SetLogger(logger).
 				SetAttributionLogic(attribution).
@@ -1035,13 +1036,13 @@ var _ = Describe("Private secrets server", func() {
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 
-			getResponse, err := serverNoFetcher.Get(ctx, privatev1.SecretsGetRequest_builder{
+			_, err = serverNoFetcher.Get(ctx, privatev1.SecretsGetRequest_builder{
 				Id: created.GetObject().GetId(),
 			}.Build())
-			Expect(err).ToNot(HaveOccurred())
-			Expect(getResponse.GetObject().GetBackend()).To(Equal(
-				privatev1.SecretBackend_SECRET_BACKEND_HUB))
-			Expect(getResponse.GetObject().GetData()).To(BeEmpty())
+			Expect(err).To(HaveOccurred())
+			st, ok := status.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(st.Code()).To(Equal(codes.FailedPrecondition))
 		})
 	})
 

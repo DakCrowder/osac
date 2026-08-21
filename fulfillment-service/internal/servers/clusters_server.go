@@ -53,10 +53,10 @@ var _ publicv1.ClustersServer = (*ClustersServer)(nil)
 type ClustersServer struct {
 	publicv1.UnimplementedClustersServer
 
-	logger          *slog.Logger
-	private         privatev1.ClustersServer
-	inMapper        *GenericMapper[*publicv1.Cluster, *privatev1.Cluster]
-	outMapper       *GenericMapper[*privatev1.Cluster, *publicv1.Cluster]
+	logger            *slog.Logger
+	private           privatev1.ClustersServer
+	inMapper          *GenericMapper[*publicv1.Cluster, *privatev1.Cluster]
+	outMapper         *GenericMapper[*privatev1.Cluster, *publicv1.Cluster]
 	jqTool            *jq.Tool
 	hubClientProvider HubClientProvider
 }

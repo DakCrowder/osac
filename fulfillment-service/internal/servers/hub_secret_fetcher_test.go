@@ -241,6 +241,62 @@ var _ = Describe("Hub secret fetcher", func() {
 			Expect(st.Code()).To(Equal(codes.Unauthenticated))
 		})
 
+		It("Returns Canceled when context is canceled", func() {
+			scheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
+			canceledClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, _ clnt.WithWatch, _ clnt.ObjectKey, _ clnt.Object, _ ...clnt.GetOption) error {
+						return context.Canceled
+					},
+				}).
+				Build()
+
+			canceledFetcher, err := NewHubSecretFetcher().
+				SetHubClientProvider(&stubHubClientProvider{client: canceledClient}).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = canceledFetcher.Fetch(context.Background(), map[string]string{
+				CoordinateHubID:      "hub-1",
+				CoordinateNamespace:  "clusters",
+				CoordinateSecretName: "my-kubeconfig",
+			})
+			Expect(err).To(HaveOccurred())
+			st, ok := status.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(st.Code()).To(Equal(codes.Canceled))
+		})
+
+		It("Returns DeadlineExceeded when context deadline is exceeded", func() {
+			scheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
+			deadlineClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, _ clnt.WithWatch, _ clnt.ObjectKey, _ clnt.Object, _ ...clnt.GetOption) error {
+						return context.DeadlineExceeded
+					},
+				}).
+				Build()
+
+			deadlineFetcher, err := NewHubSecretFetcher().
+				SetHubClientProvider(&stubHubClientProvider{client: deadlineClient}).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = deadlineFetcher.Fetch(context.Background(), map[string]string{
+				CoordinateHubID:      "hub-1",
+				CoordinateNamespace:  "clusters",
+				CoordinateSecretName: "my-kubeconfig",
+			})
+			Expect(err).To(HaveOccurred())
+			st, ok := status.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(st.Code()).To(Equal(codes.DeadlineExceeded))
+		})
+
 		It("Returns PermissionDenied when hub returns 403", func() {
 			scheme := runtime.NewScheme()
 			Expect(corev1.AddToScheme(scheme)).To(Succeed())
