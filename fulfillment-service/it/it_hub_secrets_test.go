@@ -44,7 +44,7 @@ var _ = Describe("Hub secrets", Ordered, Label("secrets", "hub"), func() {
 		k8sSecretName = fmt.Sprintf("hub-test-%s", uuid.New()[24:32])
 		k8sSecretData = map[string][]byte{
 			"tls.crt": []byte("-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"),
-			"tls.key": []byte("-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"),
+			"tls.key": []byte("fake-key-data-for-testing"),
 		}
 
 		// Create a Kubernetes Secret on the hub cluster for the hub fetcher to read.
