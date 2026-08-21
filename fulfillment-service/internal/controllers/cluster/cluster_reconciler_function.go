@@ -15,6 +15,7 @@ package cluster
 
 //go:generate mockgen -source=../../api/osac/private/v1/clusters_service_grpc.pb.go -destination=clusters_client_mock.go -package=cluster ClustersClient
 //go:generate mockgen -source=../../api/osac/private/v1/cluster_versions_service_grpc.pb.go -destination=cluster_versions_client_mock.go -package=cluster ClusterVersionsClient
+//go:generate mockgen -source=../../api/osac/private/v1/secrets_service_grpc.pb.go -destination=secrets_client_mock.go -package=cluster SecretsClient
 
 import (
 	"context"
@@ -25,10 +26,14 @@ import (
 	"slices"
 
 	"google.golang.org/grpc"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 
 	osacv1alpha1 "github.com/osac-project/osac/osac-operator/api/v1alpha1"
@@ -37,6 +42,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/annotations"
+	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/osac/fulfillment-service/internal/masks"
 	"github.com/osac-project/osac/fulfillment-service/internal/utils"
@@ -61,6 +67,7 @@ type function struct {
 	clustersClient        privatev1.ClustersClient
 	hubsClient            privatev1.HubsClient
 	clusterVersionsClient privatev1.ClusterVersionsClient
+	secretsClient         privatev1.SecretsClient
 	maskCalculator        *masks.Calculator
 }
 
@@ -117,6 +124,7 @@ func (b *FunctionBuilder) Build() (result controllers.ReconcilerFunction[*privat
 		clustersClient:        privatev1.NewClustersClient(b.connection),
 		hubsClient:            privatev1.NewHubsClient(b.connection),
 		clusterVersionsClient: privatev1.NewClusterVersionsClient(b.connection),
+		secretsClient:         privatev1.NewSecretsClient(b.connection),
 		hubCache:              b.hubCache,
 		maskCalculator:        masks.NewCalculator().Build(),
 	}
@@ -269,6 +277,15 @@ func (t *task) update(ctx context.Context) error {
 			slog.String("namespace", object.GetNamespace()),
 			slog.String("name", object.GetName()),
 		)
+	}
+
+	if state == privatev1.ClusterState_CLUSTER_STATE_READY && object != nil {
+		if secretErr := t.ensureClusterSecrets(ctx, object); secretErr != nil {
+			t.r.logger.ErrorContext(ctx, "Failed to ensure cluster secrets",
+				slog.String("cluster_id", t.cluster.GetId()),
+				slog.Any("error", secretErr),
+			)
+		}
 	}
 
 	return err
@@ -592,4 +609,112 @@ func (t *task) removeFinalizer() {
 		})
 		t.cluster.GetMetadata().SetFinalizers(list)
 	}
+}
+
+const (
+	coordinateHubID      = "hub_id"
+	coordinateNamespace  = "namespace"
+	coordinateSecretName = "secret_name"
+	coordinateKey        = "key"
+)
+
+func (t *task) ensureClusterSecrets(ctx context.Context, order *osacv1alpha1.ClusterOrder) error {
+	clusterRef := order.Status.ClusterReference
+	if clusterRef == nil || clusterRef.HostedClusterName == "" {
+		return nil
+	}
+
+	hc, err := t.getHostedCluster(ctx, clusterRef.Namespace, clusterRef.HostedClusterName)
+	if err != nil {
+		return err
+	}
+	if hc == nil {
+		return nil
+	}
+
+	kubeconfigSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeconfig", "name")
+	if err != nil || !found || kubeconfigSecretName == "" {
+		return nil
+	}
+
+	passwordSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeadminPassword", "name")
+	if err != nil || !found || passwordSecretName == "" {
+		return nil
+	}
+
+	clusterName := t.cluster.GetMetadata().GetName()
+	if err = t.createHubSecret(ctx, clusterName+"-kubeconfig", "cluster-kubeconfig",
+		clusterRef.Namespace, kubeconfigSecretName, "kubeconfig"); err != nil {
+		return err
+	}
+
+	if err = t.createHubSecret(ctx, clusterName+"-password", "cluster-password",
+		clusterRef.Namespace, passwordSecretName, "password"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *task) getHostedCluster(ctx context.Context, namespace, name string) (*unstructured.Unstructured, error) {
+	object := &unstructured.Unstructured{}
+	object.SetGroupVersionKind(gvks.HostedCluster)
+	err := t.hubClient.Get(ctx, clnt.ObjectKey{
+		Namespace: namespace,
+		Name:      name,
+	}, object)
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return object, nil
+}
+
+func (t *task) createHubSecret(ctx context.Context, secretName, secretTypeLabel,
+	k8sNamespace, k8sSecretName, k8sKey string) error {
+	secret := privatev1.Secret_builder{
+		Metadata: privatev1.Metadata_builder{
+			Name:    secretName,
+			Tenant:  t.cluster.GetMetadata().GetTenant(),
+			Project: t.cluster.GetMetadata().GetProject(),
+			Labels: map[string]string{
+				labels.SecretType: secretTypeLabel,
+			},
+		}.Build(),
+		Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
+		Coordinates: map[string]string{
+			coordinateHubID:      t.hubId,
+			coordinateNamespace:  k8sNamespace,
+			coordinateSecretName: k8sSecretName,
+			coordinateKey:        k8sKey,
+		},
+	}.Build()
+
+	_, err := t.r.secretsClient.Create(ctx, privatev1.SecretsCreateRequest_builder{
+		Object: secret,
+	}.Build())
+	if err != nil {
+		if isAlreadyExists(err) {
+			t.r.logger.DebugContext(ctx, "Hub secret already exists",
+				slog.String("secret_name", secretName),
+				slog.String("cluster_id", t.cluster.GetId()),
+			)
+			return nil
+		}
+		return fmt.Errorf("failed to create hub secret '%s': %w", secretName, err)
+	}
+
+	t.r.logger.DebugContext(ctx, "Created hub secret",
+		slog.String("secret_name", secretName),
+		slog.String("secret_type", secretTypeLabel),
+		slog.String("cluster_id", t.cluster.GetId()),
+	)
+	return nil
+}
+
+func isAlreadyExists(err error) bool {
+	st, ok := grpcstatus.FromError(err)
+	return ok && st.Code() == grpccodes.AlreadyExists
 }
