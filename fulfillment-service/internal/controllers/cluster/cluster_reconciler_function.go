@@ -31,7 +31,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 
 	osacv1alpha1 "github.com/osac-project/osac/osac-operator/api/v1alpha1"
@@ -40,6 +42,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/annotations"
+	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/osac/fulfillment-service/internal/masks"
 	"github.com/osac-project/osac/fulfillment-service/internal/utils"
@@ -50,6 +53,16 @@ const objectPrefix = "order-"
 
 // dockerConfigJSONKey is the Secret data key that holds a Kubernetes dockerconfigjson payload.
 const dockerConfigJSONKey = ".dockerconfigjson"
+
+// Coordinate keys for hub secrets.
+const (
+	coordinateHubID      = "hub_id"
+	coordinateNamespace  = "namespace"
+	coordinateSecretName = "secret_name"
+	coordinateKey        = "key"
+)
+
+const systemCreator = "system"
 
 // errClusterVersionNotFound indicates the requested ClusterVersion does not exist.
 var errClusterVersionNotFound = errors.New("cluster version not found")
@@ -299,6 +312,15 @@ func (t *task) update(ctx context.Context) error {
 		)
 	}
 
+	if state == privatev1.ClusterState_CLUSTER_STATE_READY && object != nil {
+		if secretErr := t.ensureClusterSecrets(ctx, object); secretErr != nil {
+			t.r.logger.ErrorContext(ctx, "Failed to ensure cluster secrets",
+				slog.String("cluster_id", t.cluster.GetId()),
+				slog.Any("error", secretErr),
+			)
+		}
+	}
+
 	return err
 }
 
@@ -532,6 +554,12 @@ func (t *task) delete(ctx context.Context) (err error) {
 		slog.String("name", object.GetName()),
 	)
 
+	// Clean up hub-backed secrets before removing the finalizer:
+	err = t.deleteClusterSecrets(ctx)
+	if err != nil {
+		return
+	}
+
 	t.removeFinalizer()
 	return
 }
@@ -661,4 +689,180 @@ func (t *task) removeFinalizer() {
 		})
 		t.cluster.GetMetadata().SetFinalizers(list)
 	}
+}
+
+func (t *task) ensureClusterSecrets(ctx context.Context, order *osacv1alpha1.ClusterOrder) error {
+	clusterRef := order.Status.ClusterReference
+	if clusterRef == nil || clusterRef.HostedClusterName == "" {
+		return nil
+	}
+
+	hc, err := t.getHostedCluster(ctx, clusterRef.Namespace, clusterRef.HostedClusterName)
+	if err != nil {
+		return err
+	}
+	if hc == nil {
+		return nil
+	}
+
+	kubeconfigSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeconfig", "name")
+	if err != nil || !found || kubeconfigSecretName == "" {
+		return nil
+	}
+
+	passwordSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeadminPassword", "name")
+	if err != nil || !found || passwordSecretName == "" {
+		return nil
+	}
+
+	clusterName := t.cluster.GetMetadata().GetName()
+	kubeconfigID, err := t.createHubSecret(ctx, clusterName+"-kubeconfig", "cluster-kubeconfig",
+		clusterRef.Namespace, kubeconfigSecretName, "kubeconfig")
+	if err != nil {
+		return err
+	}
+
+	passwordID, err := t.createHubSecret(ctx, clusterName+"-password", "cluster-password",
+		clusterRef.Namespace, passwordSecretName, "password")
+	if err != nil {
+		return err
+	}
+
+	// Update status fields with references to the created secrets
+	t.cluster.GetStatus().SetKubeconfigSecret(&privatev1.SecretLocalReference{
+		Id:   kubeconfigID,
+		Name: clusterName + "-kubeconfig",
+	})
+	t.cluster.GetStatus().SetPasswordSecret(&privatev1.SecretLocalReference{
+		Id:   passwordID,
+		Name: clusterName + "-password",
+	})
+
+	return nil
+}
+
+func (t *task) getHostedCluster(ctx context.Context, namespace, name string) (*unstructured.Unstructured, error) {
+	object := &unstructured.Unstructured{}
+	object.SetGroupVersionKind(gvks.HostedCluster)
+	err := t.hubClient.Get(ctx, clnt.ObjectKey{
+		Namespace: namespace,
+		Name:      name,
+	}, object)
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return object, nil
+}
+
+func (t *task) createHubSecret(ctx context.Context, secretName, secretTypeLabel,
+	k8sNamespace, k8sSecretName, k8sKey string) (string, error) {
+	secret := privatev1.Secret_builder{
+		Metadata: privatev1.Metadata_builder{
+			Name:    secretName,
+			Tenant:  t.cluster.GetMetadata().GetTenant(),
+			Project: t.cluster.GetMetadata().GetProject(),
+			Labels: map[string]string{
+				labels.SecretType: secretTypeLabel,
+			},
+			Creator: systemCreator,
+		}.Build(),
+		Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
+		Coordinates: map[string]string{
+			coordinateHubID:      t.hubId,
+			coordinateNamespace:  k8sNamespace,
+			coordinateSecretName: k8sSecretName,
+			coordinateKey:        k8sKey,
+		},
+	}.Build()
+
+	resp, err := t.r.secretsClient.Create(ctx, privatev1.SecretsCreateRequest_builder{
+		Object: secret,
+	}.Build())
+	if err != nil {
+		if isAlreadyExists(err) {
+			return t.fetchExistingSecretID(ctx, secretName)
+		}
+		return "", fmt.Errorf("failed to create hub secret '%s': %w", secretName, err)
+	}
+
+	createdID := resp.GetObject().GetId()
+	t.r.logger.DebugContext(ctx, "Created hub secret",
+		slog.String("secret_name", secretName),
+		slog.String("project", t.cluster.GetMetadata().GetProject()),
+		slog.String("cluster_id", t.cluster.GetId()),
+	)
+	return createdID, nil
+}
+
+// fetchExistingSecretID fetches the ID of an existing secret with the given name, tenant, and project.
+// This is a bit of a "loose" relationship that can exist as a transient state from a previously
+// failed reconciler run.  Name + tenant + project should be unique and then we can persist
+// the secret ID in the cluster status.
+func (t *task) fetchExistingSecretID(ctx context.Context, secretName string) (string, error) {
+	filter := fmt.Sprintf(
+		`this.metadata.name == "%s" && this.metadata.tenant == "%s" && this.metadata.project == "%s"`,
+		secretName, t.cluster.GetMetadata().GetTenant(), t.cluster.GetMetadata().GetProject(),
+	)
+	listResp, listErr := t.r.secretsClient.List(ctx, privatev1.SecretsListRequest_builder{
+		Filter: &filter,
+		Limit:  new(int32(1)),
+	}.Build())
+	if listErr != nil {
+		return "", fmt.Errorf("failed to resolve existing secret '%s': %w", secretName, listErr)
+	}
+	if len(listResp.GetItems()) == 0 {
+		return "", fmt.Errorf("secret '%s' exists but could not be found", secretName)
+	}
+	existingID := listResp.GetItems()[0].GetId()
+	t.r.logger.DebugContext(ctx, "Hub secret already exists",
+		slog.String("secret_name", secretName),
+		slog.String("project", t.cluster.GetMetadata().GetProject()),
+		slog.String("cluster_id", t.cluster.GetId()),
+	)
+	return existingID, nil
+}
+
+func (t *task) deleteClusterSecrets(ctx context.Context) error {
+	refs := []*privatev1.SecretLocalReference{
+		t.cluster.GetStatus().GetKubeconfigSecret(),
+		t.cluster.GetStatus().GetPasswordSecret(),
+	}
+
+	for _, ref := range refs {
+		if ref == nil || ref.GetId() == "" {
+			continue
+		}
+
+		_, err := t.r.secretsClient.Delete(ctx, privatev1.SecretsDeleteRequest_builder{
+			Id: ref.GetId(),
+		}.Build())
+		if err != nil {
+			// Treat NotFound as success (idempotent cleanup)
+			if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+				t.r.logger.DebugContext(ctx, "Hub secret already deleted",
+					slog.String("secret_id", ref.GetId()),
+					slog.String("secret_name", ref.GetName()),
+					slog.String("cluster_id", t.cluster.GetId()),
+				)
+				continue
+			}
+			return fmt.Errorf("failed to delete hub secret '%s' for cluster '%s': %w",
+				ref.GetId(), t.cluster.GetId(), err)
+		}
+		t.r.logger.DebugContext(ctx, "Deleted hub secret",
+			slog.String("secret_id", ref.GetId()),
+			slog.String("secret_name", ref.GetName()),
+			slog.String("cluster_id", t.cluster.GetId()),
+		)
+	}
+
+	return nil
+}
+
+func isAlreadyExists(err error) bool {
+	st, ok := status.FromError(err)
+	return ok && st.Code() == codes.AlreadyExists
 }

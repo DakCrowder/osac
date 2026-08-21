@@ -346,6 +346,12 @@ func (s *PrivateSecretsServer) validateHubSecretCreate(secret *privatev1.Secret)
 		return grpcstatus.Errorf(grpccodes.InvalidArgument,
 			"field 'coordinates' is required when backend is HUB")
 	}
+	for _, key := range []string{CoordinateHubID, CoordinateNamespace, CoordinateSecretName} {
+		if secret.GetCoordinates()[key] == "" {
+			return grpcstatus.Errorf(grpccodes.InvalidArgument,
+				"coordinate %q is required when backend is HUB", key)
+		}
+	}
 	if len(secret.GetData()) > 0 {
 		return grpcstatus.Errorf(grpccodes.InvalidArgument,
 			"field 'data' must be empty when backend is HUB")

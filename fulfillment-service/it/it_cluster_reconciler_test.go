@@ -20,6 +20,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -32,6 +34,13 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/uuid"
 	osacv1alpha1 "github.com/osac-project/osac/osac-operator/api/v1alpha1"
 )
+
+func verifyNotFound(g Gomega, err error) {
+	g.Expect(err).To(HaveOccurred())
+	st, ok := grpcstatus.FromError(err)
+	g.Expect(ok).To(BeTrue())
+	g.Expect(st.Code()).To(Equal(grpccodes.NotFound))
+}
 
 var _ = Describe("Cluster reconciler", func() {
 	var (
@@ -321,5 +330,81 @@ var _ = Describe("Cluster reconciler", func() {
 			time.Minute,
 			time.Second,
 		).Should(Succeed())
+	})
+	Describe("Manages secrets as part of the cluster lifecycle", func() {
+		var (
+			secretsClient privatev1.SecretsClient
+		)
+		BeforeEach(func() {
+			secretsClient = privatev1.NewSecretsClient(tool.InternalView().AdminConn())
+		})
+
+		It("Creates and deletes hub secrets when a cluster is created and deleted", func() {
+			// Create the cluster
+			response, err := clustersClient.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-cluster-%s", uuid.New()[24:32]),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			object := response.GetObject()
+			DeferCleanup(func() {
+				_, err := clustersClient.Delete(ctx, publicv1.ClustersDeleteRequest_builder{
+					Id: object.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			// The secret references should be populated in the cluster status:
+			var kubeconfigID, passwordID string
+			Eventually(func(g Gomega) {
+				cluster, err := clustersClient.Get(ctx, publicv1.ClustersGetRequest_builder{
+					Id: object.GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				kubeconfigID = cluster.GetObject().GetStatus().GetKubeconfigSecret().GetId()
+				passwordID = cluster.GetObject().GetStatus().GetPasswordSecret().GetId()
+				g.Expect(kubeconfigID).ToNot(BeEmpty())
+				g.Expect(passwordID).ToNot(BeEmpty())
+			}, time.Minute, time.Second).Should(Succeed())
+
+			// Make sure the secrets exist:
+			configSecret, err := secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+				Id: kubeconfigID,
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(configSecret.GetObject().GetData()).To(HaveKey("kubeconfig"))
+
+			passwordSecret, err := secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+				Id: passwordID,
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(passwordSecret.GetObject().GetData()).To(HaveKey("password"))
+
+			// Delete the cluster:
+			_, err = clustersClient.Delete(ctx, publicv1.ClustersDeleteRequest_builder{
+				Id: object.GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				_, err := clustersClient.Get(ctx, publicv1.ClustersGetRequest_builder{
+					Id: object.GetId(),
+				}.Build())
+				verifyNotFound(g, err)
+
+				_, err = secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+					Id: kubeconfigID,
+				}.Build())
+				g.Expect(err).To(HaveOccurred())
+				verifyNotFound(g, err)
+				_, err = secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+					Id: passwordID,
+				}.Build())
+				verifyNotFound(g, err)
+			}, time.Minute, time.Second).Should(Succeed())
+		})
 	})
 })

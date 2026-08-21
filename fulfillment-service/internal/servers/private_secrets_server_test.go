@@ -115,9 +115,9 @@ var _ = Describe("Private secrets server", func() {
 					}.Build(),
 					Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
 					Coordinates: map[string]string{
-						"cluster":   "hub-1",
-						"namespace": "default",
-						"name":      "my-k8s-secret",
+						"hub_id":      "hub-1",
+						"namespace":   "default",
+						"secret_name": "my-k8s-secret",
 					},
 				}.Build(),
 			}.Build())
@@ -155,7 +155,7 @@ var _ = Describe("Private secrets server", func() {
 			Expect(created.GetId()).ToNot(BeEmpty())
 			Expect(created.GetBackend()).To(Equal(
 				privatev1.SecretBackend_SECRET_BACKEND_HUB))
-			Expect(created.GetCoordinates()).To(HaveKeyWithValue("cluster", "hub-1"))
+			Expect(created.GetCoordinates()).To(HaveKeyWithValue("hub_id", "hub-1"))
 			Expect(created.GetData()).To(BeEmpty())
 		})
 
@@ -369,7 +369,9 @@ var _ = Describe("Private secrets server", func() {
 						}.Build(),
 						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
 						Coordinates: map[string]string{
-							"cluster": "hub-1",
+							"hub_id":      "hub-1",
+							"namespace":   "default",
+							"secret_name": "my-k8s-secret",
 						},
 						Data: map[string][]byte{
 							"key": []byte("value"),
@@ -381,6 +383,66 @@ var _ = Describe("Private secrets server", func() {
 				Expect(ok).To(BeTrue())
 				Expect(st.Code()).To(Equal(codes.InvalidArgument))
 				Expect(st.Message()).To(ContainSubstring("data"))
+			})
+
+			It("Create Hub secret missing hub_id fails", func() {
+				_, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name: "my-secret",
+						}.Build(),
+						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
+						Coordinates: map[string]string{
+							"namespace":   "default",
+							"secret_name": "my-k8s-secret",
+						},
+					}.Build(),
+				}.Build())
+				Expect(err).To(HaveOccurred())
+				st, ok := status.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(st.Code()).To(Equal(codes.InvalidArgument))
+				Expect(st.Message()).To(ContainSubstring("hub_id"))
+			})
+
+			It("Create Hub secret missing namespace fails", func() {
+				_, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name: "my-secret",
+						}.Build(),
+						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
+						Coordinates: map[string]string{
+							"hub_id":      "hub-1",
+							"secret_name": "my-k8s-secret",
+						},
+					}.Build(),
+				}.Build())
+				Expect(err).To(HaveOccurred())
+				st, ok := status.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(st.Code()).To(Equal(codes.InvalidArgument))
+				Expect(st.Message()).To(ContainSubstring("namespace"))
+			})
+
+			It("Create Hub secret missing secret_name fails", func() {
+				_, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name: "my-secret",
+						}.Build(),
+						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
+						Coordinates: map[string]string{
+							"hub_id":    "hub-1",
+							"namespace": "default",
+						},
+					}.Build(),
+				}.Build())
+				Expect(err).To(HaveOccurred())
+				st, ok := status.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(st.Code()).To(Equal(codes.InvalidArgument))
+				Expect(st.Message()).To(ContainSubstring("secret_name"))
 			})
 		})
 
@@ -570,9 +632,9 @@ var _ = Describe("Private secrets server", func() {
 						}.Build(),
 						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
 						Coordinates: map[string]string{
-							"cluster":   "hub-1",
-							"namespace": "default",
-							"name":      "my-k8s-secret",
+							"hub_id":      "hub-1",
+							"namespace":   "default",
+							"secret_name": "my-k8s-secret",
 						},
 					}.Build(),
 				}.Build())
@@ -650,7 +712,9 @@ var _ = Describe("Private secrets server", func() {
 						}.Build(),
 						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
 						Coordinates: map[string]string{
-							"cluster": "hub-1",
+							"hub_id":      "hub-1",
+							"namespace":   "default",
+							"secret_name": "my-k8s-secret",
 						},
 					}.Build(),
 				}.Build())
@@ -895,7 +959,9 @@ var _ = Describe("Private secrets server", func() {
 						}.Build(),
 						Backend: privatev1.SecretBackend_SECRET_BACKEND_HUB,
 						Coordinates: map[string]string{
-							"cluster": "hub-1",
+							"hub_id":      "hub-1",
+							"namespace":   "default",
+							"secret_name": "my-k8s-secret",
 						},
 					}.Build(),
 				}.Build())

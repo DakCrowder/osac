@@ -281,6 +281,16 @@ message ClusterStatus {
   //
   // This will be empty if no state transition has been reported yet.
   optional google.protobuf.Timestamp state_transition_time = 8;
+
+  // Reference to a Secret containing the cluster's kubeconfig.
+  //
+  // System-populated after cluster provisioning.
+  SecretLocalReference kubeconfig_secret = 9;
+
+  // Reference to a Secret containing the cluster's kubeadmin password.
+  //
+  // System-populated after cluster provisioning.
+  SecretLocalReference password_secret = 10;
 }
 
 // Represents the overall state of a cluster.
