@@ -141,12 +141,13 @@ func (r *ConsoleTargetResolver) ResolveComputeInstance(ctx context.Context, reso
 	if err != nil {
 		return nil, err
 	}
-	if hubInfo.Namespace == "" {
-		return nil, status.Errorf(codes.Internal, "hub %q returned empty namespace", state.ciInfo.HubID)
-	}
 
 	namespace, crName, err := r.findCROnHub(ctx, hubInfo.Client, state.ciInfo.HubID, hubInfo.Namespace, resourceID)
 	if err != nil {
+		// Evict cached client on authentication errors to handle kubeconfig rotation and token expiration.
+		if status.Code(err) == codes.Unauthenticated {
+			r.hubClientProvider.EvictClient(state.ciInfo.HubID)
+		}
 		return nil, err
 	}
 

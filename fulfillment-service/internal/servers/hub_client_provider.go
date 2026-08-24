@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
@@ -82,6 +83,7 @@ type HubClientInfo struct {
 // HubClientProvider manages cached Kubernetes clients for hub clusters.
 type HubClientProvider interface {
 	GetClient(ctx context.Context, hubID string) (*HubClientInfo, error)
+	EvictClient(hubID string)
 }
 
 // HubClientProviderBuilder contains the data and logic needed to create a hub client provider. Don't create instances of
@@ -150,8 +152,12 @@ func (p *hubClientProvider) GetClient(ctx context.Context, hubID string) (*HubCl
 	p.mu.RUnlock()
 
 	ctx = context.WithoutCancel(ctx)
+	// Apply timeout to prevent indefinite blocking.
+	// All goroutines waiting in the singleflight group will receive the timeout error.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
-	result, err, _ := p.group.Do(hubID, func() (any, error) {
+	resultCh := p.group.DoChan(hubID, func() (any, error) {
 		p.mu.RLock()
 		if info, ok := p.clients[hubID]; ok {
 			p.mu.RUnlock()
@@ -181,10 +187,22 @@ func (p *hubClientProvider) GetClient(ctx context.Context, hubID string) (*HubCl
 
 		return info, nil
 	})
-	if err != nil {
-		return nil, err
+
+	select {
+	case <-ctx.Done():
+		return nil, status.Errorf(codes.DeadlineExceeded, "timeout waiting for hub client: %v", ctx.Err())
+	case result := <-resultCh:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return result.Val.(*HubClientInfo), nil
 	}
-	return result.(*HubClientInfo), nil
+}
+
+func (p *hubClientProvider) EvictClient(hubID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.clients, hubID)
 }
 
 func classifyHubLookupError(err error, hubID string) error {

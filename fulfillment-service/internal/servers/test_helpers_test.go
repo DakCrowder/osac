@@ -41,6 +41,10 @@ func (s *stubHubClientProvider) GetClient(_ context.Context, _ string) (*HubClie
 	}, nil
 }
 
+func (s *stubHubClientProvider) EvictClient(_ string) {
+	// No-op for stub
+}
+
 func createComputeInstanceInState(
 	ctx context.Context,
 	computeInstanceDao *dao.GenericDAO[*privatev1.ComputeInstance],

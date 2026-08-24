@@ -40,6 +40,18 @@ func (m *MockHubClientProvider) EXPECT() *MockHubClientProviderMockRecorder {
 	return m.recorder
 }
 
+// EvictClient mocks base method.
+func (m *MockHubClientProvider) EvictClient(hubID string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "EvictClient", hubID)
+}
+
+// EvictClient indicates an expected call of EvictClient.
+func (mr *MockHubClientProviderMockRecorder) EvictClient(hubID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvictClient", reflect.TypeOf((*MockHubClientProvider)(nil).EvictClient), hubID)
+}
+
 // GetClient mocks base method.
 func (m *MockHubClientProvider) GetClient(ctx context.Context, hubID string) (*HubClientInfo, error) {
 	m.ctrl.T.Helper()

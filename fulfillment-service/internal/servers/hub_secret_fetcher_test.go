@@ -339,3 +339,7 @@ type stubHubClientProviderWithError struct {
 func (s *stubHubClientProviderWithError) GetClient(_ context.Context, _ string) (*HubClientInfo, error) {
 	return nil, s.err
 }
+
+func (s *stubHubClientProviderWithError) EvictClient(_ string) {
+	// No-op for stub
+}
