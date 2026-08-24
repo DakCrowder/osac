@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
@@ -248,6 +249,37 @@ var _ = Describe("findVersion", func() {
 	})
 })
 
+var _ = Describe("Create cluster pull secret flags", func() {
+	It("should register --pull-secret flag", func() {
+		cmd := Cmd()
+		cmd.SetOut(GinkgoWriter)
+		cmd.SetErr(GinkgoWriter)
+		flag := cmd.Flags().Lookup("pull-secret")
+		Expect(flag).NotTo(BeNil())
+		Expect(flag.DefValue).To(Equal(""))
+	})
+
+	It("should register --pull-secret-file flag", func() {
+		cmd := Cmd()
+		cmd.SetOut(GinkgoWriter)
+		cmd.SetErr(GinkgoWriter)
+		flag := cmd.Flags().Lookup("pull-secret-file")
+		Expect(flag).NotTo(BeNil())
+		Expect(flag.DefValue).To(Equal(""))
+	})
+
+	It("should reject both --pull-secret and --pull-secret-file", func() {
+		cmd := Cmd()
+		cmd.SetOut(GinkgoWriter)
+		cmd.SetErr(GinkgoWriter)
+		cmd.SetArgs([]string{"--catalog-item", "cat-001", "--name", "test", "--pull-secret", "my-secret", "--pull-secret-file", "/tmp/secret"})
+		err := cmd.Execute()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("if any flags in the group"))
+		Expect(err.Error()).To(ContainSubstring("pull-secret"))
+	})
+})
+
 var _ = Describe("Create cluster networking flags", func() {
 	It("should register --network-attachment flag", func() {
 		cmd := Cmd()
@@ -262,6 +294,56 @@ var _ = Describe("Create cluster networking flags", func() {
 		Expect(flag).NotTo(BeNil())
 		Expect(flag.Value.Type()).To(Equal("bool"))
 		Expect(flag.DefValue).To(Equal("false"))
+	})
+})
+
+var _ = Describe("isValidResourceName", func() {
+	It("accepts valid single-character name", func() {
+		Expect(isValidResourceName("a")).To(BeTrue())
+	})
+
+	It("accepts valid lowercase alphanumeric name with dashes", func() {
+		Expect(isValidResourceName("my-secret")).To(BeTrue())
+	})
+
+	It("accepts valid name starting and ending with alphanumeric", func() {
+		Expect(isValidResourceName("abc-123")).To(BeTrue())
+	})
+
+	It("accepts valid 63-character name", func() {
+		Expect(isValidResourceName("a" + strings.Repeat("x", 61) + "z")).To(BeTrue())
+	})
+
+	It("rejects name starting with dash", func() {
+		Expect(isValidResourceName("-start")).To(BeFalse())
+	})
+
+	It("rejects name ending with dash", func() {
+		Expect(isValidResourceName("end-")).To(BeFalse())
+	})
+
+	It("rejects name with uppercase letters", func() {
+		Expect(isValidResourceName("My-Secret")).To(BeFalse())
+	})
+
+	It("rejects name with underscore", func() {
+		Expect(isValidResourceName("my_secret")).To(BeFalse())
+	})
+
+	It("rejects name with dot", func() {
+		Expect(isValidResourceName("my.secret")).To(BeFalse())
+	})
+
+	It("rejects 64-character name", func() {
+		Expect(isValidResourceName(strings.Repeat("a", 64))).To(BeFalse())
+	})
+
+	It("rejects empty name", func() {
+		Expect(isValidResourceName("")).To(BeFalse())
+	})
+
+	It("rejects name with special characters", func() {
+		Expect(isValidResourceName("my@secret")).To(BeFalse())
 	})
 })
 

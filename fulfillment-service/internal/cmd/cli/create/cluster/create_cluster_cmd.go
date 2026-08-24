@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +46,12 @@ import (
 
 //go:embed templates
 var templatesFS embed.FS
+
+var resourceNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+func isValidResourceName(name string) bool {
+	return resourceNameRE.MatchString(name)
+}
 
 func Cmd() *cobra.Command {
 	runner := &runnerContext{}
@@ -154,6 +161,7 @@ func Cmd() *cobra.Command {
 	)
 	result.MarkFlagsMutuallyExclusive("catalog-item", "template")
 	result.MarkFlagsOneRequired("catalog-item", "template")
+	result.MarkFlagsMutuallyExclusive("pull-secret", "pull-secret-file")
 	return result
 }
 
@@ -211,6 +219,17 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	// Reject --set without --catalog-item:
 	if c.args.catalogItem == "" && len(c.args.setFields) > 0 {
 		return fmt.Errorf("--set is only supported with --catalog-item")
+	}
+
+	// Validate secret name format (client-side check before server call):
+	if c.args.pullSecret != "" {
+		if !isValidResourceName(c.args.pullSecret) {
+			return fmt.Errorf(
+				"invalid secret name %q: must be 1-63 lowercase alphanumeric characters or '-', "+
+					"starting and ending with an alphanumeric character",
+				c.args.pullSecret,
+			)
+		}
 	}
 
 	// Deprecation warning for --template (per D-03):
@@ -316,7 +335,6 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 
 // resolveCredentials reads pull secret and SSH public key from file flags when specified.
 func (c *runnerContext) resolveCredentials() (pullSecret, sshPublicKey string, err error) {
-	pullSecret = c.args.pullSecret
 	if c.args.pullSecretFile != "" {
 		data, readErr := os.ReadFile(c.args.pullSecretFile)
 		if readErr != nil {
@@ -344,6 +362,11 @@ func (c *runnerContext) applyOptionalSpecFields(
 ) {
 	if pullSecret != "" {
 		specBuilder.PullSecret = &pullSecret
+	}
+	if c.args.pullSecret != "" {
+		specBuilder.PullSecretSecret = publicv1.SecretLocalReference_builder{
+			Name: c.args.pullSecret,
+		}.Build()
 	}
 	if sshPublicKey != "" {
 		specBuilder.SshPublicKey = &sshPublicKey
@@ -962,12 +985,14 @@ times.
 `
 
 const pullSecretFlagHelp = `
-_SECRET_ - Pull secret for authenticating to image repositories, provided as
-an inline value. See also {{ bt }}--pull-secret-file{{ bt }}.
+_NAME_ - Name of a Secret resource containing pull secret credentials.
+Mutually exclusive with {{ bt }}--pull-secret-file{{ bt }}. The secret must
+exist in the same tenant. See also {{ bt }}osac create secret{{ bt }}.
 `
 
 const pullSecretFileFlagHelp = `
-_FILE_ - Path to a file containing the pull secret.
+_FILE_ - Path to a file containing the pull secret, provided as inline
+credentials. Mutually exclusive with {{ bt }}--pull-secret{{ bt }}.
 `
 
 const sshPublicKeyFlagHelp = `
