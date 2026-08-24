@@ -40,6 +40,8 @@ func NewDefaultHubClientFactory(scheme *runtime.Scheme) HubClientFactory {
 	}
 }
 
+//go:generate mockgen -destination=hub_lookup_mock.go -package=servers . HubLookup
+
 // HubLookup provides hub cluster access for console resolution.
 // Implementations are pure readers that consume a tx-bound context.
 type HubLookup interface {
@@ -130,6 +132,16 @@ func (b *HubClientProviderBuilder) Build() (HubClientProvider, error) {
 }
 
 func (p *hubClientProvider) GetClient(ctx context.Context, hubID string) (*HubClientInfo, error) {
+	// Always validate authorization first, even for cached clients
+	kubeconfig, namespace, err := p.hubLookup.GetKubeconfig(ctx, hubID)
+	if err != nil {
+		return nil, classifyHubLookupError(err, hubID)
+	}
+
+	if namespace == "" {
+		return nil, status.Errorf(codes.Internal, "hub %q returned an empty namespace", hubID)
+	}
+
 	p.mu.RLock()
 	if info, ok := p.clients[hubID]; ok {
 		p.mu.RUnlock()
@@ -146,15 +158,6 @@ func (p *hubClientProvider) GetClient(ctx context.Context, hubID string) (*HubCl
 			return info, nil
 		}
 		p.mu.RUnlock()
-
-		kubeconfig, namespace, err := p.hubLookup.GetKubeconfig(ctx, hubID)
-		if err != nil {
-			return nil, classifyHubLookupError(err, hubID)
-		}
-
-		if namespace == "" {
-			return nil, status.Errorf(codes.Internal, "hub %q returned an empty namespace", hubID)
-		}
 
 		config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 		if err != nil {
