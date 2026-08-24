@@ -607,6 +607,9 @@ func (s *ClustersServer) getHostedClusterSecret(ctx context.Context, clusterId s
 	// Get the cluster order from the hub:
 	order, err := s.getKubeClusterOrder(ctx, hubInfo.Client, hubInfo.Namespace, cluster.GetId())
 	if err != nil {
+		if grpcstatus.Code(err) == grpccodes.Unauthenticated {
+			s.hubClientProvider.EvictClient(cluster.GetStatus().GetHub())
+		}
 		return
 	}
 
@@ -624,6 +627,9 @@ func (s *ClustersServer) getHostedClusterSecret(ctx context.Context, clusterId s
 	// Get the hosted cluster from the hub:
 	hc, err := s.getKubeHostedCluster(ctx, hubInfo.Client, hcKey)
 	if err != nil || hc == nil {
+		if grpcstatus.Code(err) == grpccodes.Unauthenticated {
+			s.hubClientProvider.EvictClient(cluster.GetStatus().GetHub())
+		}
 		return
 	}
 
@@ -638,6 +644,9 @@ func (s *ClustersServer) getHostedClusterSecret(ctx context.Context, clusterId s
 
 	// Get the secret from the hub:
 	result, err = s.getKubeSecret(ctx, hubInfo.Client, secretKey)
+	if grpcstatus.Code(err) == grpccodes.Unauthenticated {
+		s.hubClientProvider.EvictClient(cluster.GetStatus().GetHub())
+	}
 	return
 }
 

@@ -18,7 +18,9 @@ import (
 	"errors"
 
 	"google.golang.org/grpc/codes"
+	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,6 +97,9 @@ func (f *hubSecretFetcher) Fetch(ctx context.Context, coordinates map[string]str
 		Name:      secretName,
 	}, secret)
 	if err != nil {
+		if grpcstatus.Code(err) == grpccodes.Unauthenticated {
+			f.hubClientProvider.EvictClient(hubID)
+		}
 		if errors.Is(err, context.Canceled) {
 			return nil, status.Errorf(codes.Canceled,
 				"request canceled while reading secret %s/%s from hub %q", namespace, secretName, hubID)
