@@ -46,6 +46,26 @@ func (s *stubHubClientProvider) EvictClient(_ string) {
 	// No-op for stub
 }
 
+// hubClientProviderWithEvictionTracking is a test double for HubClientProvider that tracks EvictClient calls.
+type hubClientProviderWithEvictionTracking struct {
+	client        clnt.Client
+	config        *rest.Config
+	namespace     string
+	evictedHubIDs []string
+}
+
+func (h *hubClientProviderWithEvictionTracking) GetClient(_ context.Context, _ string) (*HubClientInfo, error) {
+	return &HubClientInfo{
+		Client:    h.client,
+		Config:    h.config,
+		Namespace: h.namespace,
+	}, nil
+}
+
+func (h *hubClientProviderWithEvictionTracking) EvictClient(hubID string) {
+	h.evictedHubIDs = append(h.evictedHubIDs, hubID)
+}
+
 func createComputeInstanceInState(
 	ctx context.Context,
 	computeInstanceDao *dao.GenericDAO[*privatev1.ComputeInstance],

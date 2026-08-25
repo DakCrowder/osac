@@ -225,8 +225,9 @@ var _ = Describe("Hub secret fetcher", func() {
 				}).
 				Build()
 
+			provider := &hubClientProviderWithEvictionTracking{client: unauthClient}
 			unauthFetcher, err := NewHubSecretFetcher().
-				SetHubClientProvider(&stubHubClientProvider{client: unauthClient}).
+				SetHubClientProvider(provider).
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -239,6 +240,7 @@ var _ = Describe("Hub secret fetcher", func() {
 			st, ok := status.FromError(err)
 			Expect(ok).To(BeTrue())
 			Expect(st.Code()).To(Equal(codes.Unauthenticated))
+			Expect(provider.evictedHubIDs).To(Equal([]string{"hub-1"}))
 		})
 
 		It("Returns Canceled when context is canceled", func() {

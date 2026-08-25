@@ -95,7 +95,7 @@ func (f *hubSecretFetcher) Fetch(ctx context.Context, coordinates map[string]str
 		Name:      secretName,
 	}, secret)
 	if err != nil {
-		if status.Code(err) == codes.Unauthenticated {
+		if apierrors.IsUnauthorized(err) || status.Code(err) == codes.Unauthenticated {
 			f.hubClientProvider.EvictClient(hubID)
 		}
 		if errors.Is(err, context.Canceled) {

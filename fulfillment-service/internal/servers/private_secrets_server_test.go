@@ -496,18 +496,21 @@ var _ = Describe("Private secrets server", func() {
 
 	Describe("Vault integration", func() {
 		var (
-			mockStore *vault.MockSecretStore
-			server    *PrivateSecretsServer
+			mockStore            *vault.MockSecretStore
+			mockHubSecretFetcher *MockHubSecretFetcher
+			server               *PrivateSecretsServer
 		)
 
 		BeforeEach(func() {
 			mockStore = vault.NewMockSecretStore(ctrl)
+			mockHubSecretFetcher = NewMockHubSecretFetcher(ctrl)
 			var err error
 			server, err = NewPrivateSecretsServer().
 				SetLogger(logger).
 				SetAttributionLogic(attribution).
 				SetTenancyLogic(tenancy).
 				SetSecretStore(mockStore).
+				SetHubSecretFetcher(mockHubSecretFetcher).
 				Build()
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -652,6 +655,10 @@ var _ = Describe("Private secrets server", func() {
 					}.Build(),
 				}.Build())
 				Expect(err).ToNot(HaveOccurred())
+
+				mockHubSecretFetcher.EXPECT().
+					Fetch(gomock.Any(), map[string]string{"cluster": "hub-1"}).
+					Return(map[string][]byte{"secret-key": []byte("secret-value")}, nil)
 
 				getResponse, err := server.Get(ctx, privatev1.SecretsGetRequest_builder{
 					Id: created.GetObject().GetId(),
