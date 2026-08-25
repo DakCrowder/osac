@@ -52,6 +52,7 @@ type BCMAPI interface {
 // BMHLifecycleManager abstracts BareMetalHost CR operations for testability.
 // Satisfied by *baremetalhost.Manager.
 type BMHLifecycleManager interface {
+	DeleteBMH(ctx context.Context, name string) error
 	IsBMHReady(ctx context.Context, name string) (bool, error)
 	GetHardwareNICs(ctx context.Context, name string) ([]string, error)
 	Namespace() string
@@ -339,9 +340,61 @@ func (c *BCMClient) buildHost(device *bcmclient.Device) *Host {
 	}
 }
 
-// UnassignHost is implemented in OSAC-3771.
-func (c *BCMClient) UnassignHost(_ context.Context, _ string, _ []string) error {
-	return fmt.Errorf("bcm UnassignHost not implemented")
+// UnassignHost clears the OSAC assignment from a BCM device and deletes the
+// on-demand BMH CR. Ordering is BCM update before BMH deletion for crash
+// recovery safety — both steps are individually idempotent.
+func (c *BCMClient) UnassignHost(ctx context.Context, inventoryHostID string, labels []string) error {
+	_, hostname, err := ParseHostID(inventoryHostID)
+	if err != nil {
+		return fmt.Errorf("UnassignHost: %w", err)
+	}
+
+	log := ctrllog.FromContext(ctx)
+	log.Info("Unassigning BCM host", "hostname", hostname)
+
+	if err := c.clearBCMAssignment(ctx, hostname, labels); err != nil {
+		return fmt.Errorf("UnassignHost: %w", err)
+	}
+
+	if err := c.bmhManager.DeleteBMH(ctx, hostname); err != nil {
+		return fmt.Errorf("UnassignHost: %w", err)
+	}
+
+	return nil
+}
+
+func (c *BCMClient) clearBCMAssignment(ctx context.Context, hostname string, labels []string) error {
+	log := ctrllog.FromContext(ctx)
+
+	device, err := c.client.GetDevice(ctx, hostname)
+	if err != nil {
+		return err
+	}
+
+	if device == nil {
+		log.Info("BCM device not found, skipping extra_values cleanup", "hostname", hostname)
+		return nil
+	}
+
+	if _, assigned := device.ExtraValues[bcmclient.ExtraValueInstanceID]; !assigned {
+		log.Info("BCM host already unassigned, skipping extra_values cleanup", "hostname", hostname)
+		return nil
+	}
+
+	raw := device.Raw
+	raw, err = bcmclient.RemoveExtraValue(raw, bcmclient.ExtraValueInstanceID)
+	if err != nil {
+		return err
+	}
+	for _, label := range labels {
+		raw, err = bcmclient.RemoveExtraValue(raw, label)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = c.client.UpdateDevice(ctx, raw)
+	return err
 }
 
 // GetHostNICs reads all NIC MAC addresses from the BareMetalHost CR hardware inspection data.
