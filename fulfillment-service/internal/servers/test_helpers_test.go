@@ -19,11 +19,32 @@ import (
 
 	"github.com/google/uuid"
 	. "github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
+	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 )
+
+// stubHubClientProvider is a test double for HubClientProvider that returns a fixed client.
+type stubHubClientProvider struct {
+	client    clnt.Client
+	config    *rest.Config
+	namespace string
+}
+
+func (s *stubHubClientProvider) GetClient(_ context.Context, _ string) (*HubClientInfo, error) {
+	return &HubClientInfo{
+		Client:    s.client,
+		Config:    s.config,
+		Namespace: s.namespace,
+	}, nil
+}
+
+func (s *stubHubClientProvider) EvictClient(_ string) {
+	// No-op for stub
+}
 
 func createComputeInstanceInState(
 	ctx context.Context,

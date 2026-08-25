@@ -38,6 +38,7 @@ type PrivateSecretsServerBuilder struct {
 	metricsRegisterer prometheus.Registerer
 	secretStore       vault.SecretStore
 	filterDesc        protoreflect.MessageDescriptor
+	hubSecretFetcher  HubSecretFetcher
 }
 
 var _ privatev1.SecretsServer = (*PrivateSecretsServer)(nil)
@@ -45,10 +46,11 @@ var _ privatev1.SecretsServer = (*PrivateSecretsServer)(nil)
 type PrivateSecretsServer struct {
 	privatev1.UnimplementedSecretsServer
 
-	logger       *slog.Logger
-	generic      *GenericServer[*privatev1.Secret]
-	secretStore  vault.SecretStore
-	tenancyLogic auth.TenancyLogic
+	logger           *slog.Logger
+	generic          *GenericServer[*privatev1.Secret]
+	secretStore      vault.SecretStore
+	hubSecretFetcher HubSecretFetcher
+	tenancyLogic     auth.TenancyLogic
 }
 
 func NewPrivateSecretsServer() *PrivateSecretsServerBuilder {
@@ -92,6 +94,13 @@ func (b *PrivateSecretsServerBuilder) SetFilterDesc(value protoreflect.MessageDe
 	return b
 }
 
+// SetHubSecretFetcher sets the hub secret fetcher used to retrieve secrets from hub clusters.
+// This is optional. When unset, hub secrets cannot be retrieved.
+func (b *PrivateSecretsServerBuilder) SetHubSecretFetcher(value HubSecretFetcher) *PrivateSecretsServerBuilder {
+	b.hubSecretFetcher = value
+	return b
+}
+
 func (b *PrivateSecretsServerBuilder) Build() (result *PrivateSecretsServer, err error) {
 	if b.logger == nil {
 		err = errors.New("logger is mandatory")
@@ -103,9 +112,10 @@ func (b *PrivateSecretsServerBuilder) Build() (result *PrivateSecretsServer, err
 	}
 
 	s := &PrivateSecretsServer{
-		logger:       b.logger,
-		secretStore:  b.secretStore,
-		tenancyLogic: b.tenancyLogic,
+		logger:           b.logger,
+		secretStore:      b.secretStore,
+		hubSecretFetcher: b.hubSecretFetcher,
+		tenancyLogic:     b.tenancyLogic,
 	}
 
 	s.generic, err = NewGenericServer[*privatev1.Secret]().
@@ -159,6 +169,20 @@ func (s *PrivateSecretsServer) Get(ctx context.Context,
 			return
 		}
 
+		obj.SetData(data)
+	}
+
+	if obj.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_HUB {
+		if s.hubSecretFetcher == nil {
+			err = grpcstatus.Errorf(grpccodes.FailedPrecondition,
+				"hub secret retrieval is not configured")
+			return
+		}
+		data, fetchErr := s.hubSecretFetcher.Fetch(ctx, obj.GetCoordinates())
+		if fetchErr != nil {
+			err = fetchErr
+			return
+		}
 		obj.SetData(data)
 	}
 

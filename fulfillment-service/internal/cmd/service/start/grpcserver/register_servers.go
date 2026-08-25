@@ -51,11 +51,13 @@ type ResourceServerDeps struct {
 	PrivateUsersServer privatev1.UsersServer
 }
 
-// ResourceServers exposes the constructed servers that code outside the registration block still needs directly.
+// ResourceServers exposes the constructed servers and shared infrastructure that code outside the
+// registration block still needs directly.
 type ResourceServers struct {
 	PrivateHubsServer             privatev1.HubsServer
 	PrivateComputeInstancesServer privatev1.ComputeInstancesServer
 	PrivateSecretsServer          privatev1.SecretsServer
+	HubClientProvider             servers.HubClientProvider
 }
 
 // RegisterResourceServers constructs and registers every filterable resource's public and private server onto
@@ -394,6 +396,33 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 	}
 	privatev1.RegisterHubsServer(registrar, privateHubsServer)
 
+	// Create the shared hub client infrastructure for on-demand retrieval of hub K8s clients:
+	deps.Logger.InfoContext(ctx, "Creating hub client infrastructure")
+	secretsDAO, err := dao.NewGenericDAO[*privatev1.Secret]().
+		SetLogger(deps.Logger).
+		SetTenancyLogic(deps.TenancyLogic).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create secrets DAO for hub lookup: %w", err)
+	}
+
+	hubLookup := servers.NewHubLookupWithDAO(privateHubsServer, secretsDAO)
+	hubClientFactory := servers.NewDefaultHubClientFactory(deps.HubScheme)
+	hubClientProvider, err := servers.NewHubClientProvider().
+		SetHubLookup(hubLookup).
+		SetHubClientFactory(hubClientFactory).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hub client provider: %w", err)
+	}
+
+	hubSecretFetcher, err := servers.NewHubSecretFetcher().
+		SetHubClientProvider(hubClientProvider).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hub secret fetcher: %w", err)
+	}
+
 	// Create the virtual networks server:
 	deps.Logger.InfoContext(ctx, "Creating virtual networks server")
 	virtualNetworksServer, err := servers.NewVirtualNetworksServer().
@@ -599,6 +628,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
 		SetSecretStore(deps.SecretStore).
+		SetHubSecretFetcher(hubSecretFetcher).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private secrets server: %w", err)
@@ -614,6 +644,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
 		SetSecretStore(deps.SecretStore).
+		SetHubSecretFetcher(hubSecretFetcher).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public secrets server: %w", err)
@@ -973,5 +1004,6 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		PrivateHubsServer:             privateHubsServer,
 		PrivateComputeInstancesServer: privateComputeInstancesServer,
 		PrivateSecretsServer:          privateSecretsServer,
+		HubClientProvider:             hubClientProvider,
 	}, nil
 }
