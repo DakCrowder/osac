@@ -137,12 +137,16 @@ A cluster in `READY` state may have additional conditions:
 
 ## Access the Cluster
 
-Once the cluster is in `READY` state, retrieve credentials:
+Once the cluster is in `READY` state, inspect its secret references and retrieve the secrets through
+the Secrets API:
 
 **Kubeconfig** (for `oc` / `kubectl`):
 
 ```bash
-osac get kubeconfig <cluster-id> > kubeconfig.yaml
+cluster=$(osac get cluster <cluster-id-or-name> -o json)
+kubeconfig_secret=$(printf '%s' "$cluster" | jq -r '.status.kubeconfig_secret.name')
+osac get secret "$kubeconfig_secret" -o json > kubeconfig-secret.json
+jq -r '.data.kubeconfig' kubeconfig-secret.json | base64 --decode > kubeconfig.yaml
 export KUBECONFIG=kubeconfig.yaml
 oc get nodes
 ```
@@ -150,7 +154,9 @@ oc get nodes
 **Admin password** (for the web console):
 
 ```bash
-osac get password <cluster-id>
+password_secret=$(printf '%s' "$cluster" | jq -r '.status.password_secret.name')
+osac get secret "$password_secret" -o yaml
+osac get secret "$password_secret" -o json | jq -r '.data.password' | base64 --decode
 ```
 
 The console URL is shown in `get clusters` output or in the cluster's `status.console_url` field.
@@ -227,7 +233,6 @@ All CLI operations correspond to REST API endpoints:
 | Create cluster | `POST` | `/api/fulfillment/v1/clusters` |
 | Update cluster | `PATCH` | `/api/fulfillment/v1/clusters/{id}` |
 | Delete cluster | `DELETE` | `/api/fulfillment/v1/clusters/{id}` |
-| Get kubeconfig | `GET` | `/api/fulfillment/v1/clusters/{id}/kubeconfig` |
-| Get password | `GET` | `/api/fulfillment/v1/clusters/{id}/password` |
+| Get secret | `GET` | `/api/fulfillment/v1/secrets/{id}` |
 
 See [Filter expressions](FILTER.md) for filtering and ordering list results.

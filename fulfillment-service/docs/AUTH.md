@@ -578,9 +578,7 @@ The authorization policy allows:
 
 2. **Client Users** (and tenant admins / IdP managers who inherit client permissions):
    - Specific gRPC methods for:
-     - Clusters: `Create`, `Delete`, `Get`, `GetKubeconfig`,
-       `GetKubeconfigViaHttp`, `GetPassword`,
-       `GetPasswordViaHttp`, `List`, `Update`
+     - Clusters: `Create`, `Delete`, `Get`, `List`, `Update`
      - Cluster Templates: `Get`, `List`
      - Cluster Catalog Items: `Get`, `List`
      - Compute Instances: `Create`, `Delete`, `Get`, `List`, `Update`

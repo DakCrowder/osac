@@ -164,8 +164,6 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetAttributionLogic(deps.PublicAttributionLogic).
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
-		SetScheme(deps.HubScheme).
-		SetSecretStore(deps.SecretStore).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create clusters server: %w", err)
