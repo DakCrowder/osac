@@ -518,6 +518,12 @@ func (t *task) delete(ctx context.Context) (err error) {
 	if t.hubId == "" {
 		return
 	}
+
+	err = t.deleteClusterSecrets(ctx)
+	if err != nil {
+		return
+	}
+
 	err = t.getHub(ctx)
 	if err != nil {
 		// Check if the hub has been decommissioned (deleted from database)
@@ -553,12 +559,6 @@ func (t *task) delete(ctx context.Context) (err error) {
 		slog.String("namespace", object.GetNamespace()),
 		slog.String("name", object.GetName()),
 	)
-
-	// Clean up hub-backed secrets before removing the finalizer:
-	err = t.deleteClusterSecrets(ctx)
-	if err != nil {
-		return
-	}
 
 	t.removeFinalizer()
 	return
@@ -705,38 +705,43 @@ func (t *task) ensureClusterSecrets(ctx context.Context, order *osacv1alpha1.Clu
 		return nil
 	}
 
-	kubeconfigSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeconfig", "name")
-	if err != nil || !found || kubeconfigSecretName == "" {
-		return nil
-	}
-
-	passwordSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeadminPassword", "name")
-	if err != nil || !found || passwordSecretName == "" {
-		return nil
-	}
-
 	clusterName := t.cluster.GetMetadata().GetName()
-	kubeconfigID, err := t.createHubSecret(ctx, clusterName+"-kubeconfig", "cluster-kubeconfig",
-		clusterRef.Namespace, kubeconfigSecretName, "kubeconfig")
-	if err != nil {
-		return err
+
+	if t.cluster.GetStatus().GetKubeconfigSecret().GetId() == "" {
+		kubeconfigSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeconfig", "name")
+		if err != nil {
+			return err
+		}
+		if found && kubeconfigSecretName != "" {
+			kubeconfigID, err := t.createHubSecret(ctx, clusterName+"-kubeconfig", "cluster-kubeconfig",
+				clusterRef.Namespace, kubeconfigSecretName, "kubeconfig")
+			if err != nil {
+				return err
+			}
+			t.cluster.GetStatus().SetKubeconfigSecret(&privatev1.SecretLocalReference{
+				Id:   kubeconfigID,
+				Name: clusterName + "-kubeconfig",
+			})
+		}
 	}
 
-	passwordID, err := t.createHubSecret(ctx, clusterName+"-password", "cluster-password",
-		clusterRef.Namespace, passwordSecretName, "password")
-	if err != nil {
-		return err
+	if t.cluster.GetStatus().GetPasswordSecret().GetId() == "" {
+		passwordSecretName, found, err := unstructured.NestedString(hc.Object, "status", "kubeadminPassword", "name")
+		if err != nil {
+			return err
+		}
+		if found && passwordSecretName != "" {
+			passwordID, err := t.createHubSecret(ctx, clusterName+"-password", "cluster-password",
+				clusterRef.Namespace, passwordSecretName, "password")
+			if err != nil {
+				return err
+			}
+			t.cluster.GetStatus().SetPasswordSecret(&privatev1.SecretLocalReference{
+				Id:   passwordID,
+				Name: clusterName + "-password",
+			})
+		}
 	}
-
-	// Update status fields with references to the created secrets
-	t.cluster.GetStatus().SetKubeconfigSecret(&privatev1.SecretLocalReference{
-		Id:   kubeconfigID,
-		Name: clusterName + "-kubeconfig",
-	})
-	t.cluster.GetStatus().SetPasswordSecret(&privatev1.SecretLocalReference{
-		Id:   passwordID,
-		Name: clusterName + "-password",
-	})
 
 	return nil
 }
@@ -803,7 +808,7 @@ func (t *task) createHubSecret(ctx context.Context, secretName, secretTypeLabel,
 // the secret ID in the cluster status.
 func (t *task) fetchExistingSecretID(ctx context.Context, secretName string) (string, error) {
 	filter := fmt.Sprintf(
-		`this.metadata.name == "%s" && this.metadata.tenant == "%s" && this.metadata.project == "%s"`,
+		`this.metadata.name == "%q" && this.metadata.tenant == "%q" && this.metadata.project == "%q"`,
 		secretName, t.cluster.GetMetadata().GetTenant(), t.cluster.GetMetadata().GetProject(),
 	)
 	listResp, listErr := t.r.secretsClient.List(ctx, privatev1.SecretsListRequest_builder{

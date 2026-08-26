@@ -346,16 +346,15 @@ var _ = Describe("Cluster reconciler", func() {
 					Metadata: publicv1.Metadata_builder{
 						Name: fmt.Sprintf("test-cluster-%s", uuid.New()[24:32]),
 					}.Build(),
+					Spec: publicv1.ClusterSpec_builder{
+						Template: publicv1.ClusterTemplateReference_builder{Id: templateId}.Build(),
+						TemplateParameters: map[string]*anypb.Any{
+							"my": makeAny(wrapperspb.String("my_value")),
+						}}.Build(),
 				}.Build(),
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 			object := response.GetObject()
-			DeferCleanup(func() {
-				_, err := clustersClient.Delete(ctx, publicv1.ClustersDeleteRequest_builder{
-					Id: object.GetId(),
-				}.Build())
-				Expect(err).ToNot(HaveOccurred())
-			})
 
 			// The secret references should be populated in the cluster status:
 			var kubeconfigID, passwordID string
@@ -363,7 +362,7 @@ var _ = Describe("Cluster reconciler", func() {
 				cluster, err := clustersClient.Get(ctx, publicv1.ClustersGetRequest_builder{
 					Id: object.GetId(),
 				}.Build())
-				Expect(err).ToNot(HaveOccurred())
+				g.Expect(err).ToNot(HaveOccurred())
 				kubeconfigID = cluster.GetObject().GetStatus().GetKubeconfigSecret().GetId()
 				passwordID = cluster.GetObject().GetStatus().GetPasswordSecret().GetId()
 				g.Expect(kubeconfigID).ToNot(BeEmpty())

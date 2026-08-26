@@ -721,7 +721,7 @@ var _ = Describe("Private secrets server", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				mockHubSecretFetcher.EXPECT().
-					Fetch(gomock.Any(), map[string]string{"cluster": "hub-1"}).
+					Fetch(gomock.Any(), map[string]string{"hub_id": "hub-1", "namespace": "default", "secret_name": "my-k8s-secret"}).
 					Return(map[string][]byte{"secret-key": []byte("secret-value")}, nil)
 
 				getResponse, err := server.Get(ctx, privatev1.SecretsGetRequest_builder{
