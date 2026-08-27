@@ -322,9 +322,12 @@ osac create cluster --catalog-item dev-sandbox
 Users can provide spec fields via CLI flags and `--set`:
 
 ```bash
+osac create secret --name cluster-pull-secret \
+  --from-file=.dockerconfigjson=pull-secret.json
+
 osac create cluster --catalog-item dev-sandbox \
   --name my-cluster \
-  --pull-secret "$(cat pull-secret.json)" \
+  --pull-secret cluster-pull-secret \
   --ssh-public-key "$(cat ~/.ssh/id_ed25519.pub)" \
   --version "4-17-0" \
   --pod-cidr "10.128.0.0/14"
@@ -337,7 +340,7 @@ single `KEY=VALUE` pair (split on the first `=`):
 osac create cluster --catalog-item rhel-ai-small \
   --set template_parameters.vpc_id=vpc-staging-02 \
   --set template_parameters.ip_block_id=block-789 \
-  --pull-secret-file pull-secret.json
+  --pull-secret cluster-pull-secret
 ```
 
 Non-editable parameters are rejected by the server:

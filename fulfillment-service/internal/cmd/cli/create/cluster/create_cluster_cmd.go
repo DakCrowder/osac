@@ -99,12 +99,6 @@ func Cmd() *cobra.Command {
 		pullSecretFlagHelp,
 	)
 	flags.StringVar(
-		&runner.args.pullSecretFile,
-		"pull-secret-file",
-		"",
-		pullSecretFileFlagHelp,
-	)
-	flags.StringVar(
 		&runner.args.sshPublicKey,
 		"ssh-public-key",
 		"",
@@ -154,7 +148,6 @@ func Cmd() *cobra.Command {
 	)
 	result.MarkFlagsMutuallyExclusive("catalog-item", "template")
 	result.MarkFlagsOneRequired("catalog-item", "template")
-	result.MarkFlagsMutuallyExclusive("pull-secret", "pull-secret-file")
 	return result
 }
 
@@ -167,7 +160,6 @@ type runnerContext struct {
 		templateParameterFiles  []string
 		setFields               []string
 		pullSecret              string
-		pullSecretFile          string
 		sshPublicKey            string
 		sshPublicKeyFile        string
 		version                 string
@@ -249,8 +241,8 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	c.clustersClient = publicv1.NewClustersClient(conn)
 	c.clusterVersionsClient = publicv1.NewClusterVersionsClient(conn)
 
-	// Resolve credentials before branching (used in both catalog-item and template paths):
-	pullSecret, sshPublicKey, err := c.resolveCredentials()
+	// Resolve the SSH public key before branching (used in both catalog-item and template paths):
+	sshPublicKey, err := c.resolveSSHPublicKey()
 	if err != nil {
 		return err
 	}
@@ -269,7 +261,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		specBuilder := publicv1.ClusterSpec_builder{
 			CatalogItem: &publicv1.ClusterCatalogItemReference{Name: c.args.catalogItem},
 		}
-		c.applyOptionalSpecFields(&specBuilder, pullSecret, sshPublicKey)
+		c.applyOptionalSpecFields(&specBuilder, sshPublicKey)
 		if err := c.applyNetworkingFlags(&specBuilder); err != nil {
 			return err
 		}
@@ -308,23 +300,15 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		Template:           &publicv1.ClusterTemplateReference{Id: template.GetId()},
 		TemplateParameters: templateParameterValues,
 	}
-	c.applyOptionalSpecFields(&specBuilder, pullSecret, sshPublicKey)
+	c.applyOptionalSpecFields(&specBuilder, sshPublicKey)
 	if err := c.applyNetworkingFlags(&specBuilder); err != nil {
 		return err
 	}
 	return c.createCluster(ctx, specBuilder.Build())
 }
 
-// resolveCredentials reads pull secret and SSH public key from file flags when specified.
-func (c *runnerContext) resolveCredentials() (pullSecret, sshPublicKey string, err error) {
-	if c.args.pullSecretFile != "" {
-		data, readErr := os.ReadFile(c.args.pullSecretFile)
-		if readErr != nil {
-			err = fmt.Errorf("failed to read pull secret file '%s': %w", c.args.pullSecretFile, readErr)
-			return
-		}
-		pullSecret = strings.TrimSpace(string(data))
-	}
+// resolveSSHPublicKey reads the SSH public key from a file when specified.
+func (c *runnerContext) resolveSSHPublicKey() (sshPublicKey string, err error) {
 	sshPublicKey = c.args.sshPublicKey
 	if c.args.sshPublicKeyFile != "" {
 		data, readErr := os.ReadFile(c.args.sshPublicKeyFile)
@@ -340,11 +324,8 @@ func (c *runnerContext) resolveCredentials() (pullSecret, sshPublicKey string, e
 // applyOptionalSpecFields sets pull secret, SSH public key, version, and network CIDRs
 // on the spec builder when their corresponding flags are provided.
 func (c *runnerContext) applyOptionalSpecFields(
-	specBuilder *publicv1.ClusterSpec_builder, pullSecret, sshPublicKey string,
+	specBuilder *publicv1.ClusterSpec_builder, sshPublicKey string,
 ) {
-	if pullSecret != "" {
-		specBuilder.PullSecret = &pullSecret
-	}
 	if c.args.pullSecret != "" {
 		specBuilder.PullSecretSecret = publicv1.SecretLocalReference_builder{
 			Name: c.args.pullSecret,
@@ -968,13 +949,8 @@ times.
 
 const pullSecretFlagHelp = `
 _NAME_ - Name of a Secret resource containing pull secret credentials.
-Mutually exclusive with {{ bt }}--pull-secret-file{{ bt }}. The secret must
-exist in the same tenant. See also {{ bt }}osac create secret{{ bt }}.
-`
-
-const pullSecretFileFlagHelp = `
-_FILE_ - Path to a file containing the pull secret, provided as inline
-credentials. Mutually exclusive with {{ bt }}--pull-secret{{ bt }}.
+The secret must exist in the same tenant. See also
+{{ bt }}osac create secret{{ bt }}.
 `
 
 const sshPublicKeyFlagHelp = `

@@ -177,7 +177,7 @@ class OsacCLI:
         *,
         template: str,
         name: str | None = None,
-        pull_secret_file: str | None = None,
+        pull_secret: str | None = None,
         ssh_public_key_file: str | None = None,
         version: str | None = None,
         template_parameters: dict[str, str] | None = None,
@@ -186,8 +186,8 @@ class OsacCLI:
         args: list[str] = ["create", "cluster", "--template", template]
         if name is not None:
             args.extend(["--name", name])
-        if pull_secret_file is not None:
-            args.extend(["--pull-secret-file", pull_secret_file])
+        if pull_secret is not None:
+            args.extend(["--pull-secret", pull_secret])
         if ssh_public_key_file is not None:
             args.extend(["--ssh-public-key-file", ssh_public_key_file])
         if version is not None:
@@ -200,6 +200,12 @@ class OsacCLI:
                 args.extend(["-f", f"{key}={path}"])
 
         return self._parse_uuid(self._run(*args))
+
+    def create_secret(self, *, name: str, from_files: dict[str, str]) -> None:
+        args: list[str] = ["create", "secret", "--name", name]
+        for key, path in from_files.items():
+            args.extend(["--from-file", f"{key}={path}"])
+        self._run(*args)
 
     def get(self, resource: str, *, output: str | None = None) -> str:
         args: list[str] = ["get", resource]

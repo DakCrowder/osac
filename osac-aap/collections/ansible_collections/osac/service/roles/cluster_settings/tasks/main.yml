@@ -74,8 +74,8 @@
       (spec.pullSecret, templateParameters, and the provider default Secret
       '{{ cluster_settings_default_credentials_secret_name }}'
       in namespace '{{ cluster_settings_default_credentials_secret_namespace }}').
-      Supply a pull secret via --pull-secret-file, spec.pullSecret, or configure
-      the provider default Secret.
+      Supply a pull secret via an OSAC Secret referenced by --pull-secret, or
+      configure the provider default Secret.
   when: not cluster_settings_pull_secret
 
 # Write resolved values back into template_parameters for backward compatibility
