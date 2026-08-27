@@ -808,7 +808,7 @@ func (t *task) createHubSecret(ctx context.Context, secretName, secretTypeLabel,
 // the secret ID in the cluster status.
 func (t *task) fetchExistingSecretID(ctx context.Context, secretName string) (string, error) {
 	filter := fmt.Sprintf(
-		`this.metadata.name == "%q" && this.metadata.tenant == "%q" && this.metadata.project == "%q"`,
+		`this.metadata.name == %q && this.metadata.tenant == %q && this.metadata.project == %q`,
 		secretName, t.cluster.GetMetadata().GetTenant(), t.cluster.GetMetadata().GetProject(),
 	)
 	listResp, listErr := t.r.secretsClient.List(ctx, privatev1.SecretsListRequest_builder{
