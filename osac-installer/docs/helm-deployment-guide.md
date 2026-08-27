@@ -115,6 +115,7 @@ These are top-level values, disabled by default. Enable only in CI/dev:
 |-------|-------------|
 | `hubAccess.enabled` | Creates hub-access SA/RBAC and registers local cluster as a hub. Only for environments where fulfillment-service and hub are the same cluster. |
 | `bundledPostgres.enabled` | Deploys a single-pod ephemeral PostgreSQL. Uses `fsync=off` and `emptyDir` — data lost on restart. Not for production. |
+| `bundledVault.enabled` | Deploys a single-pod ephemeral OpenBao (Vault-compatible) secret store for testing. Dev mode — data is lost on restart. Not for production. |
 
 ## Infrastructure Configuration
 
