@@ -114,7 +114,7 @@ message ComputeInstancesDeleteRequest {
 message ComputeInstancesDeleteResponse {}
 
 
-message ComputeInstancesSignalRequest { 
+message ComputeInstancesSignalRequest {
   option (cleanapi.message).private = true;
   string id = 1;
 }

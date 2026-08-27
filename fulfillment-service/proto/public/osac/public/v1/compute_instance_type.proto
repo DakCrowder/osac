@@ -170,7 +170,6 @@ message ComputeInstanceSpec {
   DiskImageReference disk_image = 19;
 }
 
-
 // The status contains the details of the compute instance provided by the system.
 message ComputeInstanceStatus {
   // Indicates the overall state of the compute instance.
@@ -239,17 +238,17 @@ message ComputeInstanceStatus {
   //      }
   //    }
   //
-  optional google.protobuf.Timestamp last_restarted_at = 4;
+  optional google.protobuf.Timestamp last_restarted_at = 5;
 
   // External IP address attached to the compute instance.
-  string external_ip_address = 5;
+  string external_ip_address = 6;
 
   // Records when the compute instance entered its current state, as reported by the provisioning
   // backend. This is the authoritative timestamp of the state transition, suitable for billing
   // interval calculations.
   //
   // This will be empty if no state transition has been reported yet.
-  optional google.protobuf.Timestamp state_transition_time = 6;
+  optional google.protobuf.Timestamp state_transition_time = 7;
 }
 
 // Represents the overall state of a compute instance.

@@ -16,9 +16,12 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
 import "google/protobuf/any.proto";
 import "osac/private/v1/baremetal_instance_common_type.proto";
 import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // A bare metal instance template defines a hardware profile (host type, OS image, network configuration)
 // that can be used to create bare metal instances via a catalog item.
@@ -49,12 +52,54 @@ message BareMetalInstanceTemplate {
   string host_type = 7;
 }
 
+// Contains type and documentation of a template parameter.
 message BareMetalInstanceTemplateParameterDefinition {
+  // Name of the parameter.
+  //
+  // This is the name that should be used in the `template_parameters` field of the bare metal instance to assign a
+  // value to the parameter.
   string name = 1;
+
+  // Human friendly short description of the parameter, only a few words, suitable for displaying in one single line on
+  // a UI or CLI.
   string title = 2;
+
+  // Human friendly description of the parameter, using Markdown format.
   string description = 3;
+
+  // Indicates if this parameter is required or optional.
+  //
+  // Values for required parameters must be included when creating the bare metal instance, otherwise it will be
+  // rejected.
+  //
+  // Note that there may be other dependencies between parameters which may cause a bare metal instance to be rejected.
+  // For example, the allowed values of a parameter may depend on the value of another parameter. That kind of
+  // information will be in the `description` field.
   bool required = 4;
+
+  // Type of the parameter.
+  //
+  // The possible values are the same as those used by the `type_url` field of the `Any` type:
+  //
+  // | Type                           | Value                                             |
+  // |--------------------------------|---------------------------------------------------|
+  // | Boolean                        | `type.googleapis.com/google.protobuf.BoolValue`   |
+  // | Integer number, 32 bits        | `type.googleapis.com/google.protobuf.Int32Value`  |
+  // | Integer number, 64 bits        | `type.googleapis.com/google.protobuf.Int64Value`  |
+  // | Floating point number, 32 bits | `type.googleapis.com/google.protobuf.FloatValue`  |
+  // | Floating point number, 64 bits | `type.googleapis.com/google.protobuf.DoubleValue` |
+  // | String                         | `type.googleapis.com/google.protobuf.StringValue` |
+  // | Timestamp                      | `type.googleapis.com/google.protobuf.Timestamp`   |
+  // | Duration                       | `type.googleapis.com/google.protobuf.Duration`    |
+  // | Array of bytes                 | `type.googleapis.com/google.protobuf.BytesValue`  |
+  // | Any JSON value                 | `type.googleapis.com/google.protobuf.Value`       |
+  //
+  // When using the HTTP+JSON version of the API the value provided in the `template_parameters` field of the bare
+  // metal instance must be represented as documented in the
+  // [ProtoJSON format document](https://protobuf.dev/programming-guides/json).
   string type = 5;
+
+  // Default value for optional parameters.
   google.protobuf.Any default = 6;
 }
 

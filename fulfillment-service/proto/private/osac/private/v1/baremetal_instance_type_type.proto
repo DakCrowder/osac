@@ -16,17 +16,20 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
 import "osac/private/v1/metadata_type.proto";
 
-// Contains the details about the bare metal instance type that are available only for the system.
+option (cleanapi.file).package = "osac.public.v1";
+
+// Describes a pre-configured bare metal hardware type that can be referenced by name when provisioning
+// bare metal instances.
 //
-// BareMetalInstanceTypes are admin-managed catalog resources that define pre-configured bare metal
-// hardware types referenced by name when provisioning bare metal instances. Cloud Provider Admins
-// control the available configurations through this private API.
+// BareMetalInstanceTypes are admin-managed catalog resources. Tenant users select a type by name instead
+// of specifying raw hardware requirements. Cloud Provider Admins control the available configurations
+// through the private API.
 //
-// The `spec` contains the hardware specifications and host label selector. The `status` contains
-// the current state of the bare metal instance type, is provided by the system and can't be
-// modified by the user.
+// The `spec` contains the hardware specifications. The `status` contains the current state of the
+// bare metal instance type, is provided by the system and can't be modified by the user.
 message BareMetalInstanceType {
   // Unique identifier of the bare metal instance type.
   string id = 1;
@@ -36,14 +39,14 @@ message BareMetalInstanceType {
   BareMetalInstanceTypeStatus status = 4;
 }
 
-// Defines the hardware specifications and host label selector for a BareMetalInstanceType.
+// Defines the hardware specifications for a BareMetalInstanceType.
 message BareMetalInstanceTypeSpec {
   // Hardware specifications for this bare metal instance type.
   BareMetalHardwareSpec hardware = 1 [(buf.validate.field).required = true];
 
   // Label selector for matching inventory hosts. Required.
   // Labels are passed directly to the inventory backend using backend-native naming conventions.
-  BareMetalLabelSelector host_label_selector = 2 [(buf.validate.field).required = true];
+  BareMetalLabelSelector host_label_selector = 2 [(cleanapi.field).private = true, (buf.validate.field).required = true];
 
   // Human-readable description of the bare metal instance type.
   string description = 3;
@@ -54,6 +57,7 @@ message BareMetalInstanceTypeStatus {}
 
 // Kubernetes-style label selector for matching inventory hosts.
 message BareMetalLabelSelector {
+  option (cleanapi.message).private = true;
   // Simple key-value label matches. At least one pair is required.
   // Labels are passed directly to the inventory backend using backend-native naming conventions.
   map<string, string> match_labels = 1 [(buf.validate.field).map.min_pairs = 1];

@@ -38,7 +38,7 @@ const (
 
 // Lifecycle states for ExternalIP resources.
 //
-// State transitions: UNSPECIFIED -> PENDING -> ALLOCATED.
+// State transitions: UNSPECIFIED -> PENDING -> ALLOCATED. On deletion: ALLOCATED -> DELETING.
 // FAILED is a terminal error state for provisioning failures.
 type ExternalIPState int32
 
@@ -58,8 +58,8 @@ const (
 	ExternalIPState_EXTERNAL_IP_STATE_ALLOCATED ExternalIPState = 2
 	// Provisioning failed. Check status.message for error details.
 	//
-	// This is a terminal error state. The ExternalIP may require deletion and recreation,
-	// or an administrator can retry via the private API Signal RPC.
+	// This is a terminal error state. The ExternalIP may require manual intervention
+	// (e.g., deleting and recreating) or a Signal RPC to retry the operation.
 	ExternalIPState_EXTERNAL_IP_STATE_FAILED ExternalIPState = 3
 	// The external IP is being deprovisioned and will be removed.
 	//
@@ -122,7 +122,7 @@ func (x ExternalIPState) Number() protoreflect.EnumNumber {
 // ExternalIPAttachment currently exists for this ExternalIP.
 //
 // The lifecycle follows: PENDING (awaiting allocation) -> ALLOCATED (IP assigned).
-// FAILED is a terminal error state for provisioning failures.
+// FAILED is a terminal error state for provisioning failures. DELETING is set during deprovisioning.
 type ExternalIP struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Unique identifier of the external IP.
@@ -360,17 +360,17 @@ type ExternalIPStatus struct {
 	//
 	// Populated once the IP transitions to ALLOCATED state. Remains stable for the lifetime of
 	// the ExternalIP. Cleared only when the IP is deallocated.
-	Address string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
+	Address string `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
 	// Parent ExternalIPPool ID that this IP was allocated from.
 	//
 	// Mirrors spec.pool for convenience in status queries. Populated when the IP is allocated.
-	Pool string `protobuf:"bytes,4,opt,name=pool,proto3" json:"pool,omitempty"`
+	Pool string `protobuf:"bytes,5,opt,name=pool,proto3" json:"pool,omitempty"`
 	// Whether this ExternalIP is currently attached to a target resource via an ExternalIPAttachment.
 	//
 	// Set to true when an ExternalIPAttachment referencing this ExternalIP reaches READY state.
 	// Set to false when the ExternalIPAttachment is deleted. An ExternalIP with attached = true
 	// cannot be deleted; the ExternalIPAttachment must be deleted first.
-	Attached      bool `protobuf:"varint,5,opt,name=attached,proto3" json:"attached,omitempty"`
+	Attached      bool `protobuf:"varint,6,opt,name=attached,proto3" json:"attached,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -616,10 +616,10 @@ var file_osac_public_v1_external_ip_type_proto_rawDesc = string([]byte{
 	0x61, 0x74, 0x65, 0x12, 0x22, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x02,
 	0x20, 0x01, 0x28, 0x09, 0x42, 0x03, 0xe0, 0x41, 0x03, 0x48, 0x00, 0x52, 0x07, 0x6d, 0x65, 0x73,
 	0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65,
-	0x73, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x42, 0x03, 0xe0, 0x41, 0x03, 0x52, 0x07, 0x61,
-	0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x17, 0x0a, 0x04, 0x70, 0x6f, 0x6f, 0x6c, 0x18, 0x04,
+	0x73, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x42, 0x03, 0xe0, 0x41, 0x03, 0x52, 0x07, 0x61,
+	0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x17, 0x0a, 0x04, 0x70, 0x6f, 0x6f, 0x6c, 0x18, 0x05,
 	0x20, 0x01, 0x28, 0x09, 0x42, 0x03, 0xe0, 0x41, 0x03, 0x52, 0x04, 0x70, 0x6f, 0x6f, 0x6c, 0x12,
-	0x1f, 0x0a, 0x08, 0x61, 0x74, 0x74, 0x61, 0x63, 0x68, 0x65, 0x64, 0x18, 0x05, 0x20, 0x01, 0x28,
+	0x1f, 0x0a, 0x08, 0x61, 0x74, 0x74, 0x61, 0x63, 0x68, 0x65, 0x64, 0x18, 0x06, 0x20, 0x01, 0x28,
 	0x08, 0x42, 0x03, 0xe0, 0x41, 0x03, 0x52, 0x08, 0x61, 0x74, 0x74, 0x61, 0x63, 0x68, 0x65, 0x64,
 	0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x3e, 0x0a, 0x18,
 	0x45, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x49, 0x50, 0x4c, 0x6f, 0x63, 0x61, 0x6c, 0x52,

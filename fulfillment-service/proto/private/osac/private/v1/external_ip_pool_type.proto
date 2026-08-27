@@ -15,9 +15,12 @@ syntax = "proto3";
 
 package osac.private.v1;
 
+import "cleanapi/cleanapi.proto";
 import "google/api/field_behavior.proto";
 import "osac/private/v1/ip_family_type.proto";
 import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Represents a pool of external IP addresses available for allocation.
 //
@@ -60,6 +63,7 @@ message ExternalIPPoolSpec {
   // Example (IPv4): ["192.168.1.0/24", "10.0.5.0/28"]
   // Example (IPv6): ["2001:db8::/64"]
   repeated string cidrs = 2 [
+    (cleanapi.field).private = true,
     (google.api.field_behavior) = REQUIRED,
     (google.api.field_behavior) = IMMUTABLE
   ];
@@ -78,6 +82,7 @@ message ExternalIPPoolSpec {
   // Set by the system based on cluster configuration. Not user-configurable. Currently the
   // only supported strategy is "metallb-l2" (MetalLB Layer 2 advertisement mode).
   string implementation_strategy = 4 [
+    (cleanapi.field).private = true,
     (google.api.field_behavior) = OUTPUT_ONLY,
     (google.api.field_behavior) = IMMUTABLE
   ];
@@ -89,29 +94,29 @@ message ExternalIPPoolSpec {
 // updates them based on reconciliation of the spec and feedback from the cluster controller.
 message ExternalIPPoolStatus {
   // Current lifecycle state of the external IP pool.
-  ExternalIPPoolState state = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  ExternalIPPoolState state = 1 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Human-readable message providing additional details about the current state.
   //
   // For PENDING state, may contain progress information like "Waiting for MetalLB configuration".
   // For FAILED state, contains error details. For READY state, typically empty.
-  optional string message = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  optional string message = 2 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Identifier of the hub cluster that this pool is deployed to.
   //
   // Set by the fulfillment-service controller when reconciling the pool to a Kubernetes CR on
   // the target hub cluster. Used for tracking which cluster the pool resources reside on.
-  string hub = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string hub = 3 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Total number of usable IP addresses across all CIDRs in this pool.
   //
   // Calculated from the CIDR ranges (e.g., a /24 IPv4 CIDR yields 254 usable addresses,
   // excluding network and broadcast addresses). Uses int64 to accommodate large IPv6 CIDR
   // ranges whose address counts exceed int32 capacity.
-  int64 total = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  int64 total = 4 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Number of IP addresses currently allocated to ExternalIP resources from this pool.
-  int64 allocated = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  int64 allocated = 5 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Number of IP addresses available for new allocations from this pool.
   //
@@ -129,6 +134,7 @@ message ExternalIPPoolStatus {
 // NetworkClass, HostClass). PENDING describes user-facing readiness ("not usable yet"), while
 // the CRD phase describes controller activity ("reconciliation in progress").
 enum ExternalIPPoolState {
+  option (cleanapi.enum).private = true;
   // State is unknown or has not been determined yet. Default state before initialization.
   EXTERNAL_IP_POOL_STATE_UNSPECIFIED = 0;
 

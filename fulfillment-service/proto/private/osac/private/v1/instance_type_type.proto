@@ -16,8 +16,11 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
 import "google/protobuf/timestamp.proto";
 import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Lifecycle states for InstanceType resources.
 enum InstanceTypeState {
@@ -53,11 +56,14 @@ message InstanceTypeDeprecation {
   google.protobuf.Timestamp obsolescence_timestamp = 4;
 }
 
-// Contains the details about the instance type that are available only for the system.
+// Describes a pre-configured compute bundle (cores, memory) that can be referenced by name when creating VMs.
 //
-// Instance types are admin-managed catalog resources that define pre-configured compute bundles
-// (cores, memory) referenced by name when creating VMs. Cloud Provider Admins control the available
-// configurations through lifecycle-managed instance types.
+// Instance types are admin-managed catalog resources. Tenant users select an instance type by name instead
+// of specifying raw compute resources. Cloud Provider Admins control the available configurations through
+// lifecycle-managed instance types.
+//
+// This is similar to the instance type concepts used by cloud providers (AWS EC2 instance types, Azure VM sizes,
+// GCP machine types).
 //
 // The `spec` contains the desired configuration, and may be modified by the admin. The `status` contains the
 // current state of the instance type, is provided by the system and can't be modified by the user.

@@ -104,7 +104,8 @@ const (
 	ExternalIPAttachmentState_EXTERNAL_IP_ATTACHMENT_STATE_UNSPECIFIED ExternalIPAttachmentState = 0
 	// The attachment is being provisioned (attach workflow in progress).
 	//
-	// The system is binding the ExternalIP's allocated address to the target resource.
+	// The system is binding the ExternalIP's allocated address to the target resource. This
+	// involves creating DNAT rules or MetalLB LoadBalancer Services depending on the target type.
 	ExternalIPAttachmentState_EXTERNAL_IP_ATTACHMENT_STATE_PENDING ExternalIPAttachmentState = 1
 	// The attachment is active and the target is reachable via the external IP address.
 	//
@@ -176,9 +177,9 @@ func (x ExternalIPAttachmentState) Number() protoreflect.EnumNumber {
 // external IP (API server or ingress). An ExternalIPAttachment can be created before the cluster
 // is ready and will activate automatically once the cluster's VIP is available.
 //
-// Lifecycle: PENDING (attach in progress) -> READY (attached and routing traffic).
-// FAILED is a terminal error state that retries via the standard provisioning lifecycle
-// with exponential backoff.
+// Lifecycle: PENDING (attach in progress) -> READY (attached and routing traffic) -> DELETING
+// (detach in progress). FAILED is a terminal error state that retries via the standard
+// provisioning lifecycle with exponential backoff.
 type ExternalIPAttachment struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Unique identifier of the external IP attachment.

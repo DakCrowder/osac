@@ -15,6 +15,7 @@ syntax = "proto3";
 
 package osac.public.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/any.proto";
 import "osac/public/v1/baremetal_instance_common_type.proto";
 import "osac/public/v1/metadata_type.proto";
@@ -24,8 +25,12 @@ import "osac/public/v1/metadata_type.proto";
 //
 // buf:lint:ignore OSAC_OBJECT_SHAPE
 message BareMetalInstanceTemplate {
-  // Unique identifier of the template.
-  string id = 1;
+  // Unique identifier of the template. Must be a valid Ansible role name: letters, digits,
+  // underscores, and dots, starting with a letter or underscore (e.g., "osac.templates.bm_host_provisioning").
+  string id = 1 [(buf.validate.field).string = {
+    min_len: 1,
+    pattern: "^[a-zA-Z_][a-zA-Z0-9._]*$"
+  }];
 
   Metadata metadata = 2;
 
@@ -38,10 +43,6 @@ message BareMetalInstanceTemplate {
   // Default spec values applied when creating a BareMetalInstance from this template.
   BareMetalInstanceTemplateSpecDefaults spec_defaults = 5;
 
-  // Definitions of the parameters that can be used to customize the template.
-  //
-  // Note that these are only the *definitions* of the parameters, not the actual values. The actual values are in the
-  // `spec.template_parameters` field of the bare metal instance.
   repeated BareMetalInstanceTemplateParameterDefinition parameters = 6;
 
   // Identifier of the HostType that defines the hardware profile for instances created from this template.

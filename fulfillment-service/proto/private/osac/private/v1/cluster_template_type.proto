@@ -15,6 +15,7 @@ syntax = "proto3";
 
 package osac.private.v1;
 
+import "cleanapi/cleanapi.proto";
 import "google/protobuf/any.proto";
 import "osac/private/v1/cluster_common_type.proto";
 import "osac/private/v1/cluster_version_type.proto";
@@ -22,14 +23,32 @@ import "osac/private/v1/metadata_type.proto";
 import "osac/private/v1/host_type_type.proto";
 import "osac/private/v1/secret_type.proto";
 
+option (cleanapi.file).package = "osac.public.v1";
+
+// A cluster template defines a type of cluster that can be created by the user. Note that the user doesn't create these
+// templates: the system provides a collection of them, and the user chooses one.
+//
 // buf:lint:ignore OSAC_OBJECT_SHAPE
 message ClusterTemplate {
-  // Public data.
+  // Unique identifier of the template.
   string id = 1;
+
   Metadata metadata = 2;
+
+  // Human friendly short description of the template, only a few words, suitable for displaying in one single line on a
+  // UI or CLI.
   string title = 3;
+
+  // Human friendly long description of the template, using Markdown format.
   string description = 4;
+
+  // Definitions of the parameters that can be used to customize the template.
+  //
+  // Note that these are only the *definitions* of the parameters, not the actual values. The actual values are in the
+  // `spec.template_parameters` field of the cluster.
   repeated ClusterTemplateParameterDefinition parameters = 5;
+
+  // Initial node sets of the cluster.
   map<string, ClusterTemplateNodeSet> node_sets = 6;
 
   // Default values for cluster spec fields. When a user creates a cluster
@@ -39,24 +58,72 @@ message ClusterTemplate {
   ClusterTemplateSpecDefaults spec_defaults = 7;
 }
 
+// Contains type and documentation of a template parameter.
 message ClusterTemplateParameterDefinition {
+  // Name of the parameter.
+  //
+  // This is the name that should be used in the `template_parameters` field of the cluster to assign a value to the
+  // parameter.
   string name = 1;
+
+  // Human friendly short description of the parameter, only a few words, suitable for displaying in one single line on
+  // a UI or CLI.
   string title = 2;
+
+  // Human friendly description of the parameter, using Markdown format.
   string description = 3;
+
+  // Indicates if this parameter is required or optional.
+  //
+  // Values for required parameters must be included when creating the cluster, otherwise it will be rejected.
+  //
+  // Note that there may be other dependencies between parameters which may cause a cluster to be rejected. For example,
+  // the allowed values of a parameter may depend on the value of another parameter. That kind of information will be in
+  // the `description` field.
   bool required = 4;
+
+  // Type of the parameter.
+  //
+  // The possible values are the same as those used by the `type_url` field of the `Any` type:
+  //
+  // | Type                           | Value                                             |
+  // |--------------------------------|---------------------------------------------------|
+  // | Boolean                        | `type.googleapis.com/google.protobuf.BoolValue`   |
+  // | Integer number, 32 bits        | `type.googleapis.com/google.protobuf.Int32Value`  |
+  // | Integer number, 64 bits        | `type.googleapis.com/google.protobuf.Int64Value`  |
+  // | Floating point number, 32 bits | `type.googleapis.com/google.protobuf.FloatValue`  |
+  // | Floating point number, 64 bits | `type.googleapis.com/google.protobuf.DoubleValue` |
+  // | String                         | `type.googleapis.com/google.protobuf.StringValue` |
+  // | Timestamp                      | `type.googleapis.com/google.protobuf.Timestamp`   |
+  // | Duration                       | `type.googleapis.com/google.protobuf.Duration`    |
+  // | Array of bytes                 | `type.googleapis.com/google.protobuf.BytesValue`  |
+  // | Any JSON value                 | `type.googleapis.com/google.protobuf.Value`       |
+  //
+  // When using the HTTP+JSON version of the API the value provided in the `template_parameters` field of the cluster
+  // must be represented as documented in the (ProtoJSON format document)[https://protobuf.dev/programming-guides/json].
   string type = 5;
+
+  // Default value for optional parameters.
   google.protobuf.Any default = 6;
 }
 
+// Defines a set of nodes that will be part of cluster, all of them of the same type of host.
 message ClusterTemplateNodeSet {
+  // Reference to the type of hosts that are part of the set.
   HostTypeReference host_type = 1;
+
+  // Number of nodes of the set.
   int32 size = 2;
 }
 
-// Default values for cluster spec fields.
+// Default values for cluster spec fields. These are applied when a user creates a cluster without
+// providing explicit values. User-provided values always override these defaults.
+//
+// Note: pull_secret is excluded from the public API because it is a write-only field
+// (redacted in GET responses). The private API includes it for server-side default resolution.
 message ClusterTemplateSpecDefaults {
   // Default pull secret for authenticating to container image repositories.
-  optional string pull_secret = 1;
+  optional string pull_secret = 1 [(cleanapi.field).private = true];
 
   // Default SSH public key installed on cluster worker nodes.
   optional string ssh_public_key = 2;
@@ -65,6 +132,9 @@ message ClusterTemplateSpecDefaults {
   optional ClusterNetwork network = 4;
 
   // Default ClusterVersion for clusters created with this template.
+  //
+  // When set, clusters that don't specify an explicit `spec.version` will use this version. The referenced
+  // ClusterVersion must exist, be enabled, and not be in `OBSOLETE` state.
   ClusterVersionReference version = 5;
 
   // Default Secret reference for pull secret credentials.

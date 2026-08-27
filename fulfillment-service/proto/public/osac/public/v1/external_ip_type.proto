@@ -31,7 +31,7 @@ import "osac/public/v1/external_ip_pool_type.proto";
 // ExternalIPAttachment currently exists for this ExternalIP.
 //
 // The lifecycle follows: PENDING (awaiting allocation) -> ALLOCATED (IP assigned).
-// FAILED is a terminal error state for provisioning failures.
+// FAILED is a terminal error state for provisioning failures. DELETING is set during deprovisioning.
 message ExternalIP {
   // Unique identifier of the external IP.
   string id = 1;
@@ -79,24 +79,24 @@ message ExternalIPStatus {
   //
   // Populated once the IP transitions to ALLOCATED state. Remains stable for the lifetime of
   // the ExternalIP. Cleared only when the IP is deallocated.
-  string address = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string address = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
 
   // Parent ExternalIPPool ID that this IP was allocated from.
   //
   // Mirrors spec.pool for convenience in status queries. Populated when the IP is allocated.
-  string pool = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string pool = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
 
   // Whether this ExternalIP is currently attached to a target resource via an ExternalIPAttachment.
   //
   // Set to true when an ExternalIPAttachment referencing this ExternalIP reaches READY state.
   // Set to false when the ExternalIPAttachment is deleted. An ExternalIP with attached = true
   // cannot be deleted; the ExternalIPAttachment must be deleted first.
-  bool attached = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  bool attached = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Lifecycle states for ExternalIP resources.
 //
-// State transitions: UNSPECIFIED -> PENDING -> ALLOCATED.
+// State transitions: UNSPECIFIED -> PENDING -> ALLOCATED. On deletion: ALLOCATED -> DELETING.
 // FAILED is a terminal error state for provisioning failures.
 enum ExternalIPState {
   // State is unknown or has not been determined yet. Default state before initialization.
@@ -117,8 +117,8 @@ enum ExternalIPState {
 
   // Provisioning failed. Check status.message for error details.
   //
-  // This is a terminal error state. The ExternalIP may require deletion and recreation,
-  // or an administrator can retry via the private API Signal RPC.
+  // This is a terminal error state. The ExternalIP may require manual intervention
+  // (e.g., deleting and recreating) or a Signal RPC to retry the operation.
   EXTERNAL_IP_STATE_FAILED = 3;
 
   // The external IP is being deprovisioned and will be removed.

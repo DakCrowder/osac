@@ -15,12 +15,15 @@ syntax = "proto3";
 
 package osac.private.v1;
 
+import "cleanapi/cleanapi.proto";
 import "google/api/field_behavior.proto";
 import "osac/private/v1/metadata_type.proto";
 import "osac/private/v1/baremetal_instance_type.proto";
 import "osac/private/v1/cluster_type.proto";
 import "osac/private/v1/compute_instance_type.proto";
 import "osac/private/v1/external_ip_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Represents a binding between an ExternalIP and a target resource.
 //
@@ -146,7 +149,7 @@ message ExternalIPAttachmentStatus {
   //
   // Set by the fulfillment-service controller when reconciling the attachment to a
   // Kubernetes CR on the target hub cluster.
-  string hub = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string hub = 4 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Lifecycle states for ExternalIPAttachment resources.

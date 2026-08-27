@@ -21,9 +21,18 @@ import "osac/public/v1/metadata_type.proto";
 
 // Represents a pool of external IP addresses available for allocation.
 //
-// ExternalIPPools are administrator-managed resources. The public API only surfaces pools that are
-// ready and have available capacity.
-// Tenants use this resource to discover available pools and select one when allocating an ExternalIP.
+// Each ExternalIPPool supports a single IP family (IPv4 or IPv6). The pool contains one or more CIDR
+// ranges from which individual ExternalIP addresses are allocated. Pools are provider-managed
+// resources created by administrators through the private API.
+//
+// "External" means external to the VirtualNetwork. The addresses may be internet-routable or
+// data-center-routable depending on the deployment topology (e.g., air-gapped environments).
+//
+// The implementation_strategy field determines how IPs from this pool are advertised on the target
+// cluster (e.g., MetalLB L2 mode). This field is set by the system and is not user-configurable.
+//
+// Capacity tracking fields in the status (total, allocated, available) reflect the current utilization
+// of the pool across all its CIDR ranges.
 message ExternalIPPool {
   // Unique identifier of the external IP pool.
   string id = 1;
@@ -31,25 +40,37 @@ message ExternalIPPool {
   // Metadata of the external IP pool, including name, labels, and timestamps.
   Metadata metadata = 2;
 
-  // Configuration of the external IP pool.
+  // Desired configuration of the external IP pool (admin-specified).
   ExternalIPPoolSpec spec = 3;
 
-  // Current capacity information for this pool (system-provided, read-only).
+  // Current state of the external IP pool (system-provided, read-only).
   ExternalIPPoolStatus status = 4;
 }
 
-// Defines the configuration of an ExternalIPPool.
+// Defines the desired configuration for an ExternalIPPool.
+//
+// All spec fields are immutable after creation. To change CIDRs, delete the pool and create a
+// new one. The Update RPC only allows metadata changes (name, labels, annotations).
 message ExternalIPPoolSpec {
-  // Fields 1–2 are reserved for internal use.
-  reserved 2;
-
-  // IP address family for this pool. Immutable after creation.
-  IPFamily ip_family = 3 [(google.api.field_behavior) = IMMUTABLE];
+  // IP address family for this pool. Required and immutable after creation.
+  //
+  // Determines whether the CIDRs in this pool are IPv4 or IPv6. All CIDRs must match this
+  // family. A single pool cannot mix IPv4 and IPv6 ranges.
+  IPFamily ip_family = 3 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
 }
 
-// Capacity information for an ExternalIPPool exposed to tenants.
+// Represents the current operational state of an ExternalIPPool.
+//
+// Status is system-provided and read-only. Users cannot modify status fields directly; the system
+// updates them based on reconciliation of the spec and feedback from the cluster controller.
 message ExternalIPPoolStatus {
+
   // Number of IP addresses available for new allocations from this pool.
+  //
+  // Equal to total minus allocated.
   int64 available = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 

@@ -265,7 +265,7 @@ message ClusterStatus {
   // is the external URL used by clients to reach the API server.
   //
   // This will be empty until the CaaS template discovers the MetalLB-allocated VIP during cluster provisioning.
-  string api_endpoint = 6;
+  string api_endpoint = 7;
 
   // Internal ingress VIP allocated by MetalLB for the cluster.
   //
@@ -273,24 +273,24 @@ message ClusterStatus {
   // which is the external URL for the cluster console.
   //
   // This will be empty until the CaaS template discovers the MetalLB-allocated VIP during cluster provisioning.
-  string ingress_endpoint = 7;
+  string ingress_endpoint = 8;
 
   // Records when the cluster entered its current state, as reported by the provisioning backend.
   // This is the authoritative timestamp of the state transition, suitable for billing interval
   // calculations.
   //
   // This will be empty if no state transition has been reported yet.
-  optional google.protobuf.Timestamp state_transition_time = 8;
+  optional google.protobuf.Timestamp state_transition_time = 9;
 
   // Reference to a Secret containing the cluster's kubeconfig.
   //
   // System-populated after cluster provisioning.
-  SecretLocalReference kubeconfig_secret = 9;
+  SecretLocalReference kubeconfig_secret = 10;
 
   // Reference to a Secret containing the cluster's kubeadmin password.
   //
   // System-populated after cluster provisioning.
-  SecretLocalReference password_secret = 10;
+  SecretLocalReference password_secret = 11;
 }
 
 // Represents the overall state of a cluster.

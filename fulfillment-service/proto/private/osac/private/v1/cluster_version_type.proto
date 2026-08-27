@@ -16,9 +16,12 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
 import "google/api/field_behavior.proto";
 import "google/protobuf/timestamp.proto";
 import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Lifecycle states for ClusterVersion resources.
 //
@@ -60,7 +63,7 @@ message ClusterVersionDeprecation {
   google.protobuf.Timestamp obsolescence_timestamp = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
-// Contains the details about the cluster version that are available only for the system.
+// Describes an OpenShift release version available for cluster provisioning.
 //
 // Cluster versions are admin-managed catalog entries that define which OpenShift versions are available. Users
 // select a cluster version when creating clusters, either directly via Cluster `spec.version` or
@@ -91,9 +94,9 @@ message ClusterVersion {
 
 // Defines the desired configuration for a ClusterVersion.
 //
-// The spec contains admin-specified parameters that define the version catalog entry. The `image` and `version`
-// fields are immutable after creation. The `enabled`, `is_default`, `state`, and `deprecation` fields may be
-// updated to manage the version lifecycle.
+// The spec contains admin-specified parameters that define the version catalog entry. The `version` field is
+// immutable after creation. The `enabled`, `is_default`, `state`, and `deprecation` fields may be updated to
+// manage the version lifecycle.
 message ClusterVersionSpec {
   // OCI release image pullspec for this version. Required on creation, immutable afterwards.
   //
@@ -101,6 +104,7 @@ message ClusterVersionSpec {
   //
   // Example: "quay.io/openshift-release-dev/ocp-release:4.17.0-multi"
   string image = 1 [
+    (cleanapi.field).private = true,
     (google.api.field_behavior) = REQUIRED,
     (google.api.field_behavior) = IMMUTABLE,
     (buf.validate.field).string = {min_len: 1, max_len: 512}

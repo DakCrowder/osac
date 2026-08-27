@@ -16,6 +16,7 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
 import "google/api/field_behavior.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
@@ -25,6 +26,8 @@ import "osac/private/v1/condition_status_type.proto";
 import "osac/private/v1/metadata_type.proto";
 import "osac/private/v1/security_group_type.proto";
 import "osac/private/v1/subnet_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Contains the details of a bare metal instance.
 //
@@ -43,7 +46,7 @@ message BareMetalInstance {
 // Groups a subnet with security groups and a physical interface binding.
 message BareMetalNetworkAttachment {
   // Reference to the Subnet. Must reference a Subnet in READY state.
-  SubnetLocalReference subnet = 1;
+  SubnetLocalReference subnet = 1 [(google.api.field_behavior) = IMMUTABLE];
 
   // References to the SecurityGroups applied on this NIC.
   // Each must be READY and belong to the same VirtualNetwork as the subnet.
@@ -51,11 +54,11 @@ message BareMetalNetworkAttachment {
 
   // Physical interface name from the HostType's NetworkInterface list.
   // When omitted on a single-attachment instance, the system selects the first fabric-role interface.
-  optional string interface = 3;
+  optional string interface = 3 [(google.api.field_behavior) = IMMUTABLE];
 
   // Designates this attachment as the default gateway for multi-NIC instances.
   // When omitted on a single-attachment instance, that attachment is implicitly primary.
-  optional bool primary = 4;
+  optional bool primary = 4 [(google.api.field_behavior) = IMMUTABLE];
 }
 
 // The spec contains the details of a bare metal instance as desired by the user.
@@ -87,6 +90,42 @@ message BareMetalInstanceSpec {
   // The controller compares this with `status.restart_trigger` and initiates a power cycle when they differ.
   int64 restart_trigger = 5;
 
+  // Values of the template parameters passed to the provisioning template.
+  //
+  // When using the HTTP+JSON version of the API the values must be represented as documented in the [ProtoJSON format
+  // document](https://protobuf.dev/programming-guides/json). For example, if the template has a `disk_layout`
+  // parameter of string type, the complete bare metal instance should be represented like this:
+  //
+  // ```json
+  // {
+  //   "spec": {
+  //     "catalog_item": "gpu-node",
+  //     "template_parameters": {
+  //       "disk_layout": {
+  //         "@type": "type.googleapis.com/google.protobuf.StringValue",
+  //         "value": "raid1"
+  //       }
+  //     }
+  //   }
+  // }
+  // ```
+  //
+  // The possible values of the `@type` are the same as those used by the `type_url` field of the `Any` type:
+  //
+  // | Type                           | Value                                             |
+  // |--------------------------------|---------------------------------------------------|
+  // | Boolean                        | `type.googleapis.com/google.protobuf.BoolValue`   |
+  // | Integer number, 32 bits        | `type.googleapis.com/google.protobuf.Int32Value`  |
+  // | Integer number, 64 bits        | `type.googleapis.com/google.protobuf.Int64Value`  |
+  // | Floating point number, 32 bits | `type.googleapis.com/google.protobuf.FloatValue`  |
+  // | Floating point number, 64 bits | `type.googleapis.com/google.protobuf.DoubleValue` |
+  // | String                         | `type.googleapis.com/google.protobuf.StringValue` |
+  // | Timestamp                      | `type.googleapis.com/google.protobuf.Timestamp`   |
+  // | Duration                       | `type.googleapis.com/google.protobuf.Duration`    |
+  // | Array of bytes                 | `type.googleapis.com/google.protobuf.BytesValue`  |
+  // | Any JSON value                 | `type.googleapis.com/google.protobuf.Value`       |
+  //
+  // These parameters can't be modified after the bare metal instance is created.
   map<string, google.protobuf.Any> template_parameters = 6 [(google.api.field_behavior) = IMMUTABLE];
 
   // OS base image configuration.
@@ -116,7 +155,7 @@ message BareMetalInstanceStatus {
   int64 restart_trigger = 3;
 
   // Identifier of the hub that was selected for this bare metal instance.
-  string hub = 4;
+  string hub = 4 [(cleanapi.field).private = true];
 
   // Runtime networking state for each network attachment.
   // Populated by the operator after DHCP lease discovery and synced via the feedback controller.

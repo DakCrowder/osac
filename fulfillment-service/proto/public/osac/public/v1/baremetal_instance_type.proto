@@ -153,11 +153,11 @@ message BareMetalInstanceStatus {
 
   // Runtime networking state for each network attachment.
   // Populated by the operator after DHCP lease discovery and synced via the feedback controller.
-  repeated BareMetalNetworkAttachmentStatus network_attachment_statuses = 4;
+  repeated BareMetalNetworkAttachmentStatus network_attachment_statuses = 5;
 
   // Physical hardware metadata fetched from the inventory backend at allocation time.
   // Absent until the inventory backend provides NIC data.
-  optional BareMetalHardware hardware = 5;
+  optional BareMetalHardware hardware = 6;
 }
 
 // Runtime networking state for a single bare metal network attachment.
@@ -223,26 +223,26 @@ message BareMetalInstanceCondition {
 
 // Types of conditions used to describe the status of a bare metal instance.
 enum BareMetalInstanceConditionType {
-  BARE_METAL_INSTANCE_CONDITION_TYPE_UNSPECIFIED = 0;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_UNSPECIFIED           = 0;
 
   // Infrastructure has been allocated to this instance by the baremetal fulfillment component.
-  BARE_METAL_INSTANCE_CONDITION_TYPE_PROVISIONED = 1;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_PROVISIONED           = 1;
 
   // OS image and user configuration have been applied by the provisioning provider.
   BARE_METAL_INSTANCE_CONDITION_TYPE_CONFIGURATION_APPLIED = 2;
 
   // The machine is available and assigned to the tenant.
   // Does not indicate OS readiness — the tenant is responsible for OS-level checks.
-  BARE_METAL_INSTANCE_CONDITION_TYPE_READY = 3;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_READY                 = 3;
 
   // A power cycle (restart) is currently in progress.
-  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_IN_PROGRESS = 4;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_IN_PROGRESS   = 4;
 
   // A restart request has failed.
-  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_FAILED = 5;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_FAILED        = 5;
 
   // Configuration changes require a restart to take effect.
-  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_REQUIRED = 6;
+  BARE_METAL_INSTANCE_CONDITION_TYPE_RESTART_REQUIRED      = 6;
 }
 
 // Local reference to a BareMetalInstance resource.

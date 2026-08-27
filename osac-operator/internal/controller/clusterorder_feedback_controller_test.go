@@ -19,6 +19,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -73,6 +74,29 @@ func (m *mockClustersClient) Update(_ context.Context, in *privatev1.ClustersUpd
 		return nil, m.updateError
 	}
 	return m.updateResponse, nil
+}
+
+// GetKubeconfig mocks base method.
+func (m *mockClustersClient) GetKubeconfig(ctx context.Context, in *privatev1.ClustersGetKubeconfigRequest, opts ...grpc.CallOption) (*privatev1.ClustersGetKubeconfigResponse, error) {
+	return nil, errors.New("not implemented")
+
+}
+
+// GetKubeconfigViaHttp mocks base method.
+func (m *mockClustersClient) GetKubeconfigViaHttp(ctx context.Context, in *privatev1.ClustersGetKubeconfigViaHttpRequest, opts ...grpc.CallOption) (*httpbody.HttpBody, error) { //nolint:staticcheck // this is a mock
+	return nil, errors.New("not implemented")
+
+}
+
+// GetPassword mocks base method.
+func (m *mockClustersClient) GetPassword(ctx context.Context, in *privatev1.ClustersGetPasswordRequest, opts ...grpc.CallOption) (*privatev1.ClustersGetPasswordResponse, error) {
+	return nil, errors.New("not implemented")
+
+}
+
+// GetPasswordViaHttp mocks base method.
+func (m *mockClustersClient) GetPasswordViaHttp(ctx context.Context, in *privatev1.ClustersGetPasswordViaHttpRequest, opts ...grpc.CallOption) (*httpbody.HttpBody, error) { //nolint:staticcheck // this is a mock
+	return nil, errors.New("not implemented")
 }
 
 func (m *mockClustersClient) Signal(_ context.Context, in *privatev1.ClustersSignalRequest, _ ...grpc.CallOption) (*privatev1.ClustersSignalResponse, error) {

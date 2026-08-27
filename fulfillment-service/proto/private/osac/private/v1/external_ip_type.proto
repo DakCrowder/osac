@@ -15,9 +15,12 @@ syntax = "proto3";
 
 package osac.private.v1;
 
+import "cleanapi/cleanapi.proto";
 import "google/api/field_behavior.proto";
 import "osac/private/v1/metadata_type.proto";
 import "osac/private/v1/external_ip_pool_type.proto";
+
+option (cleanapi.file).package = "osac.public.v1";
 
 // Represents an external IP address allocated from an ExternalIPPool.
 //
@@ -31,7 +34,7 @@ import "osac/private/v1/external_ip_pool_type.proto";
 // ExternalIPAttachment currently exists for this ExternalIP.
 //
 // The lifecycle follows: PENDING (awaiting allocation) -> ALLOCATED (IP assigned).
-// FAILED is a terminal error state. DELETING is set during deprovisioning.
+// FAILED is a terminal error state for provisioning failures. DELETING is set during deprovisioning.
 message ExternalIP {
   // Unique identifier of the external IP.
   string id = 1;
@@ -79,7 +82,7 @@ message ExternalIPStatus {
   //
   // Set by the fulfillment-service controller when reconciling the external IP to a Kubernetes CR
   // on the target hub cluster. Used for tracking which cluster the IP resources reside on.
-  string hub = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string hub = 3 [(cleanapi.field).private = true, (google.api.field_behavior) = OUTPUT_ONLY];
 
   // Allocated IP address from the parent pool's CIDR range.
   //
@@ -131,7 +134,8 @@ enum ExternalIPState {
   //
   // On deletion of an ExternalIP, the system removes the MetalLB LoadBalancer Service and
   // returns the address to the pool. An ExternalIP cannot be deleted while attached
-  // (status.attached = true).
+  // (status.attached = true). The resource remains visible in this state until fully
+  // cleaned up.
   EXTERNAL_IP_STATE_DELETING = 4;
 }
 
