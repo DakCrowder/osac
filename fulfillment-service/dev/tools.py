@@ -42,6 +42,7 @@ class Tool:
         extracted_name: str = "",
         checksums_url: str = "",
         artifact_url: str = "",
+        arch_override: dict[str, str] | None = None,
     ):
         """
         Initialize a Tool definition.
@@ -57,11 +58,12 @@ class Tool:
             raise ValueError(f"Tool checksums are required for '{name}'")
 
         # Get normalized architecture name
-        arch_name = _ARCH_MAP.get(_SYSTEM_ARCH)
+        arch_map = arch_override if arch_override is not None else _ARCH_MAP
+        arch_name = arch_map.get(_SYSTEM_ARCH)
         if arch_name is None:
             raise ValueError(
                 f"Unsupported architecture '{_SYSTEM_ARCH}' for tool '{name}'. "
-                f"Supported architectures: {', '.join(_ARCH_MAP.keys())}"
+                f"Supported architectures: {', '.join(arch_map.keys())}"
             )
 
         # Save basic metadata
@@ -146,4 +148,13 @@ PROTOC_GEN_CLEANAPI = Tool(
     checksums_artifact="protoc-gen-cleanapi_{version}_checksums.txt",
     compressed_artifact_name="protoc-gen-cleanapi_{sys_os}_{sys_arch}.tar.gz",
     extracted_name="protoc-gen-cleanapi",  # Binary extracted directly, not in versioned dir
+    # This tool uses x86_64/i386 instead of amd64/386
+    arch_override={
+        "x86_64": "x86_64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "x86_64",
+        "i386": "i386",
+        "i686": "i386",
+    },
 )
