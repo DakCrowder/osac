@@ -26,7 +26,7 @@ import (
 
 var _ = DescribeMigration("Add Secret delete protection trigger", func() {
 	BeforeEach(func(ctx context.Context) {
-		err := tool.Migrate(ctx, 107)
+		err := tool.Migrate(ctx, 108)
 		Expect(err).ToNot(HaveOccurred())
 
 		_, err = conn.Exec(ctx, `
