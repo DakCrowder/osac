@@ -17,7 +17,6 @@ package osac.private.v1;
 
 import "cleanapi/cleanapi.proto";
 import "google/api/annotations.proto";
-import "google/api/httpbody.proto";
 import "google/protobuf/field_mask.proto";
 import "osac/private/v1/cluster_type.proto";
 
@@ -81,30 +80,6 @@ message ClustersGetResponse {
   Cluster object = 1;
 }
 
-message ClustersGetKubeconfigRequest {
-  string id = 1;
-}
-
-message ClustersGetKubeconfigResponse {
-  string kubeconfig = 1;
-}
-
-message ClustersGetKubeconfigViaHttpRequest {
-  string id = 1;
-}
-
-message ClustersGetPasswordRequest {
-  string id = 1;
-}
-
-message ClustersGetPasswordResponse {
-  string password = 1;
-}
-
-message ClustersGetPasswordViaHttpRequest {
-  string id = 1;
-}
-
 message ClustersCreateRequest {
   Cluster object = 1;
 }
@@ -154,40 +129,6 @@ service Clusters {
       get: "/api/private/v1/clusters/{id}"
       response_body: "object"
     };
-  }
-
-  // Returns the admin Kubeconfig of the cluster.
-  //
-  // This intended for use with the gRPC protocol, and it isn't mapped to an HTTP endpoint. To retrieve the Kubeconfig
-  // via HTTP see the `ClustersGetKubeconfigViaHttp` method below.
-  rpc GetKubeconfig(ClustersGetKubeconfigRequest) returns (ClustersGetKubeconfigResponse) {}
-
-  // Returns the admin Kubeconfig of the cluster.
-  //
-  // This is intended for use with HTTP and returns the YAML text of the Kubeconfig directly using the content type
-  // `application/yaml`.
-  //
-  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
-  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
-  rpc GetKubeconfigViaHttp(ClustersGetKubeconfigViaHttpRequest) returns (google.api.HttpBody) {
-    option (google.api.http) = {get: "/api/private/v1/clusters/{id}/kubeconfig"};
-  }
-
-  // Returns the admin password of the cluster.
-  //
-  // This intended for use with the gRPC protocol, and it isn't mapped to an HTTP endpoint. To retrieve the password
-  // via HTTP see the `ClustersGetPasswordViaHttp` method below.
-  rpc GetPassword(ClustersGetPasswordRequest) returns (ClustersGetPasswordResponse) {}
-
-  // Returns the admin password of the cluster.
-  //
-  // This is intended for use with HTTP and returns the YAML text of the password directly using the content type
-  // `text/plain`.
-  //
-  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
-  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
-  rpc GetPasswordViaHttp(ClustersGetPasswordViaHttpRequest) returns (google.api.HttpBody) {
-    option (google.api.http) = {get: "/api/private/v1/clusters/{id}/password"};
   }
 
   // Creates a new cluster.
