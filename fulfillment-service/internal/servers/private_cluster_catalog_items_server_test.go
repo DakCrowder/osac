@@ -525,7 +525,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: false,
 						}.Build(),
 					},
@@ -535,7 +535,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 			status, ok := grpcstatus.FromError(err)
 			Expect(ok).To(BeTrue())
 			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-			Expect(status.Message()).To(ContainSubstring("pull_secret"))
+			Expect(status.Message()).To(ContainSubstring("ssh_public_key"))
 			Expect(status.Message()).To(ContainSubstring("default value"))
 		})
 
@@ -549,7 +549,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: false,
 							Default:  structpb.NewStringValue("my-secret"),
 						}.Build(),
@@ -577,7 +577,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: true,
 						}.Build(),
 					},
@@ -604,7 +604,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: true,
 						}.Build(),
 						privatev1.FieldDefinition_builder{
@@ -700,7 +700,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Metadata: privatev1.Metadata_builder{Name: name}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: false,
 						}.Build(),
 					},
@@ -713,7 +713,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 			status, ok := grpcstatus.FromError(err)
 			Expect(ok).To(BeTrue())
 			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-			Expect(status.Message()).To(ContainSubstring("pull_secret"))
+			Expect(status.Message()).To(ContainSubstring("ssh_public_key"))
 			Expect(status.Message()).To(ContainSubstring("default value"))
 		})
 
@@ -786,7 +786,7 @@ var _ = Describe("Private cluster catalog items server", func() {
 					Metadata: privatev1.Metadata_builder{Name: name}.Build(),
 					FieldDefinitions: []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:     "spec.pull_secret",
+							Path:     "spec.ssh_public_key",
 							Editable: false,
 							Default:  structpb.NewStringValue("locked-secret"),
 						}.Build(),

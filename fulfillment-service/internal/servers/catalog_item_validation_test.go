@@ -30,52 +30,50 @@ var _ = Describe("applyFieldDefinitions", func() {
 	It("rejects editable field with no default and no user value", func() {
 		spec := &privatev1.ClusterSpec{}
 		fieldDefs := []*privatev1.FieldDefinition{{
-			Path:     "pull_secret",
+			Path:     "pull_secret_secret",
 			Editable: true,
 		}}
 		err := applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-		Expect(err.Error()).To(ContainSubstring("pull_secret"))
+		Expect(err.Error()).To(ContainSubstring("pull_secret_secret"))
 	})
 
 	It("accepts editable field with no default when user provides value", func() {
-		pullSecret := "my-secret"
 		spec := &privatev1.ClusterSpec{
-			PullSecret: &pullSecret,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "my-secret"}.Build(),
 		}
 		fieldDefs := []*privatev1.FieldDefinition{{
-			Path:     "pull_secret",
+			Path:     "pull_secret_secret",
 			Editable: true,
 		}}
 		err := applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("my-secret"))
+		Expect(spec.GetPullSecretSecret().GetName()).To(Equal("my-secret"))
 	})
 
 	It("applies default for editable field when user provides no value", func() {
 		spec := &privatev1.ClusterSpec{}
-		defaultVal, err := structpb.NewValue("default-secret")
+		defaultVal, err := structpb.NewValue(map[string]any{"name": "default-secret"})
 		Expect(err).ToNot(HaveOccurred())
 		fieldDefs := []*privatev1.FieldDefinition{{
-			Path:     "pull_secret",
+			Path:     "pull_secret_secret",
 			Editable: true,
 			Default:  defaultVal,
 		}}
 		err = applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("default-secret"))
+		Expect(spec.GetPullSecretSecret().GetName()).To(Equal("default-secret"))
 	})
 
 	It("rejects user value for non-editable field", func() {
-		userValue := "user-value"
 		spec := &privatev1.ClusterSpec{
-			PullSecret: &userValue,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "user-value"}.Build(),
 		}
-		defaultVal, err := structpb.NewValue("admin-value")
+		defaultVal, err := structpb.NewValue(map[string]any{"name": "admin-value"})
 		Expect(err).ToNot(HaveOccurred())
 		fieldDefs := []*privatev1.FieldDefinition{{
-			Path:     "pull_secret",
+			Path:     "pull_secret_secret",
 			Editable: false,
 			Default:  defaultVal,
 		}}
@@ -87,16 +85,16 @@ var _ = Describe("applyFieldDefinitions", func() {
 
 	It("applies default for non-editable field when user provides no value", func() {
 		spec := &privatev1.ClusterSpec{}
-		defaultVal, err := structpb.NewValue("admin-value")
+		defaultVal, err := structpb.NewValue(map[string]any{"name": "admin-value"})
 		Expect(err).ToNot(HaveOccurred())
 		fieldDefs := []*privatev1.FieldDefinition{{
-			Path:     "pull_secret",
+			Path:     "pull_secret_secret",
 			Editable: false,
 			Default:  defaultVal,
 		}}
 		err = applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("admin-value"))
+		Expect(spec.GetPullSecretSecret().GetName()).To(Equal("admin-value"))
 	})
 
 	It("happy path: editable value preserved and non-editable default applied", func() {
@@ -117,9 +115,8 @@ var _ = Describe("applyFieldDefinitions", func() {
 	})
 
 	It("returns no error for empty field definitions", func() {
-		pullSecret := "my-secret"
 		spec := &privatev1.ClusterSpec{
-			PullSecret: &pullSecret,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "my-secret"}.Build(),
 		}
 		err := applyFieldDefinitions(spec, nil)
 		Expect(err).ToNot(HaveOccurred())
@@ -139,7 +136,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 				Default:  defaultVersion,
 			},
 			{
-				Path:     "pull_secret",
+				Path:     "pull_secret_secret",
 				Editable: true,
 			},
 			{
@@ -150,7 +147,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 		err = applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-		Expect(err.Error()).To(ContainSubstring("pull_secret"))
+		Expect(err.Error()).To(ContainSubstring("pull_secret_secret"))
 	})
 
 	It("applies disk_image field definition default to compute instance spec", func() {
@@ -290,9 +287,8 @@ var _ = Describe("validateFieldDefinitions", func() {
 
 var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 	It("rejects a single unlisted field on ClusterSpec", func() {
-		pullSecret := "my-secret"
 		spec := &privatev1.ClusterSpec{
-			PullSecret: &pullSecret,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "my-secret"}.Build(),
 		}
 		defaultVal, err := structpb.NewValue("ssh-ed25519 AAAA")
 		Expect(err).ToNot(HaveOccurred())
@@ -304,15 +300,14 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 		err = applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-		Expect(err.Error()).To(ContainSubstring("pull_secret"))
+		Expect(err.Error()).To(ContainSubstring("pull_secret_secret"))
 		Expect(err.Error()).To(ContainSubstring("not allowed"))
 	})
 
 	It("rejects multiple unlisted fields on ClusterSpec", func() {
-		pullSecret := "my-secret"
 		spec := privatev1.ClusterSpec_builder{
-			PullSecret: &pullSecret,
-			Version:    &privatev1.ClusterVersionReference{Name: "4-17-0"},
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "my-secret"}.Build(),
+			Version:          &privatev1.ClusterVersionReference{Name: "4-17-0"},
 		}.Build()
 		defaultVal, err := structpb.NewValue("ssh-ed25519 AAAA")
 		Expect(err).ToNot(HaveOccurred())
@@ -324,19 +319,18 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 		err = applyFieldDefinitions(spec, fieldDefs)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-		Expect(err.Error()).To(ContainSubstring("pull_secret"))
+		Expect(err.Error()).To(ContainSubstring("pull_secret_secret"))
 		Expect(err.Error()).To(ContainSubstring("version"))
 	})
 
 	It("accepts when all fields are covered by field_definitions", func() {
-		pullSecret := "my-secret"
 		sshKey := "ssh-ed25519 AAAA"
 		spec := &privatev1.ClusterSpec{
-			PullSecret:   &pullSecret,
-			SshPublicKey: &sshKey,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "my-secret"}.Build(),
+			SshPublicKey:     &sshKey,
 		}
 		fieldDefs := []*privatev1.FieldDefinition{
-			{Path: "pull_secret", Editable: true},
+			{Path: "pull_secret_secret", Editable: true},
 			{Path: "ssh_public_key", Editable: true},
 		}
 		err := applyFieldDefinitions(spec, fieldDefs)
@@ -389,9 +383,8 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 	})
 
 	It("rejects unlisted field before checking non-editable override", func() {
-		pullSecret := "user-override"
 		spec := &privatev1.ClusterSpec{
-			PullSecret: &pullSecret,
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Name: "user-override"}.Build(),
 		}
 		defaultVal, err := structpb.NewValue(map[string]interface{}{"name": "4-17-0"})
 		Expect(err).ToNot(HaveOccurred())
@@ -404,7 +397,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("not allowed"))
-		Expect(err.Error()).To(ContainSubstring("pull_secret"))
+		Expect(err.Error()).To(ContainSubstring("pull_secret_secret"))
 	})
 
 	It("rejects template_parameters without a field_definition", func() {

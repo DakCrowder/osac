@@ -22,31 +22,30 @@ import (
 
 var _ = Describe("ApplyClusterSpecDefaults", func() {
 	It("Does nothing when defaults are nil", func() {
-		pullSecret := "my-secret"
+		sshKey := "my-key"
 		spec := privatev1.ClusterSpec_builder{
-			PullSecret: &pullSecret,
+			SshPublicKey: &sshKey,
 		}.Build()
 		ApplyClusterSpecDefaults(spec, nil)
-		Expect(spec.GetPullSecret()).To(Equal("my-secret"))
+		Expect(spec.GetSshPublicKey()).To(Equal("my-key"))
 	})
 
 	It("Does nothing when spec is nil", func() {
-		pullSecret := "default-secret"
+		sshKey := "default-key"
 		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecret: &pullSecret,
+			SshPublicKey: &sshKey,
 		}.Build()
 		ApplyClusterSpecDefaults(nil, defaults)
 	})
 
 	It("Applies all defaults to empty spec", func() {
-		pullSecret := "default-pull-secret"
 		sshKey := "ssh-rsa AAAA..."
 		podCidr := "10.128.0.0/14"
 		serviceCidr := "172.30.0.0/16"
 		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecret:   &pullSecret,
-			SshPublicKey: &sshKey,
-			Version:      &privatev1.ClusterVersionReference{Name: "4-22-0"},
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "secret-id"}.Build(),
+			SshPublicKey:     &sshKey,
+			Version:          &privatev1.ClusterVersionReference{Name: "4-22-0"},
 			Network: privatev1.ClusterNetwork_builder{
 				PodCidr:     &podCidr,
 				ServiceCidr: &serviceCidr,
@@ -56,7 +55,7 @@ var _ = Describe("ApplyClusterSpecDefaults", func() {
 		spec := privatev1.ClusterSpec_builder{}.Build()
 		ApplyClusterSpecDefaults(spec, defaults)
 
-		Expect(spec.GetPullSecret()).To(Equal("default-pull-secret"))
+		Expect(spec.GetPullSecretSecret().GetId()).To(Equal("secret-id"))
 		Expect(spec.GetSshPublicKey()).To(Equal("ssh-rsa AAAA..."))
 		Expect(spec.GetVersion().GetName()).To(Equal("4-22-0"))
 		Expect(spec.GetNetwork().GetPodCidr()).To(Equal("10.128.0.0/14"))
@@ -64,24 +63,22 @@ var _ = Describe("ApplyClusterSpecDefaults", func() {
 	})
 
 	It("User values override defaults", func() {
-		userPullSecret := "user-pull-secret"
 		userSshKey := "ssh-ed25519 user-key"
-		defaultPullSecret := "default-pull-secret"
 		defaultSshKey := "ssh-rsa default-key"
 		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecret:   &defaultPullSecret,
-			SshPublicKey: &defaultSshKey,
-			Version:      &privatev1.ClusterVersionReference{Name: "4-22-0"},
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "default-secret-id"}.Build(),
+			SshPublicKey:     &defaultSshKey,
+			Version:          &privatev1.ClusterVersionReference{Name: "4-22-0"},
 		}.Build()
 
 		spec := privatev1.ClusterSpec_builder{
-			PullSecret:   &userPullSecret,
-			SshPublicKey: &userSshKey,
-			Version:      &privatev1.ClusterVersionReference{Name: "4-22-1"},
+			PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "user-secret-id"}.Build(),
+			SshPublicKey:     &userSshKey,
+			Version:          &privatev1.ClusterVersionReference{Name: "4-22-1"},
 		}.Build()
 		ApplyClusterSpecDefaults(spec, defaults)
 
-		Expect(spec.GetPullSecret()).To(Equal("user-pull-secret"))
+		Expect(spec.GetPullSecretSecret().GetId()).To(Equal("user-secret-id"))
 		Expect(spec.GetSshPublicKey()).To(Equal("ssh-ed25519 user-key"))
 		Expect(spec.GetVersion().GetName()).To(Equal("4-22-1"))
 	})
@@ -108,7 +105,7 @@ var _ = Describe("ApplyClusterSpecDefaults", func() {
 		Expect(spec.GetNetwork().GetServiceCidr()).To(Equal("172.30.0.0/16"))
 	})
 
-	It("Applies pull_secret_secret default when no pull_secret is set", func() {
+	It("Applies pull_secret_secret default when no reference is set", func() {
 		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
 			PullSecretSecret: privatev1.SecretLocalReference_builder{
 				Id:   "secret-id",
@@ -122,24 +119,6 @@ var _ = Describe("ApplyClusterSpecDefaults", func() {
 		Expect(spec.GetPullSecretSecret()).ToNot(BeNil())
 		Expect(spec.GetPullSecretSecret().GetId()).To(Equal("secret-id"))
 		Expect(spec.GetPullSecretSecret().GetName()).To(Equal("secret-name"))
-		Expect(spec.HasPullSecret()).To(BeFalse())
-	})
-
-	It("Does not apply pull_secret_secret default when user sets inline pull_secret", func() {
-		userPullSecret := "user-inline-secret"
-		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecretSecret: privatev1.SecretLocalReference_builder{
-				Id: "secret-id",
-			}.Build(),
-		}.Build()
-
-		spec := privatev1.ClusterSpec_builder{
-			PullSecret: &userPullSecret,
-		}.Build()
-		ApplyClusterSpecDefaults(spec, defaults)
-
-		Expect(spec.GetPullSecret()).To(Equal("user-inline-secret"))
-		Expect(spec.GetPullSecretSecret()).To(BeNil())
 	})
 
 	It("Does not apply pull_secret_secret default when user sets pull_secret_secret", func() {
@@ -157,36 +136,6 @@ var _ = Describe("ApplyClusterSpecDefaults", func() {
 		ApplyClusterSpecDefaults(spec, defaults)
 
 		Expect(spec.GetPullSecretSecret().GetId()).To(Equal("user-secret-id"))
-	})
-
-	It("Applies inline pull_secret default when template has no pull_secret_secret", func() {
-		defaultPullSecret := "default-inline"
-		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecret: &defaultPullSecret,
-		}.Build()
-
-		spec := privatev1.ClusterSpec_builder{}.Build()
-		ApplyClusterSpecDefaults(spec, defaults)
-
-		Expect(spec.GetPullSecret()).To(Equal("default-inline"))
-		Expect(spec.GetPullSecretSecret()).To(BeNil())
-	})
-
-	It("Prefers pull_secret_secret default over inline pull_secret default", func() {
-		defaultPullSecret := "default-inline"
-		defaults := privatev1.ClusterTemplateSpecDefaults_builder{
-			PullSecret: &defaultPullSecret,
-			PullSecretSecret: privatev1.SecretLocalReference_builder{
-				Id: "secret-id",
-			}.Build(),
-		}.Build()
-
-		spec := privatev1.ClusterSpec_builder{}.Build()
-		ApplyClusterSpecDefaults(spec, defaults)
-
-		Expect(spec.GetPullSecretSecret()).ToNot(BeNil())
-		Expect(spec.GetPullSecretSecret().GetId()).To(Equal("secret-id"))
-		Expect(spec.HasPullSecret()).To(BeFalse())
 	})
 
 	It("Clones network defaults to prevent shared state", func() {

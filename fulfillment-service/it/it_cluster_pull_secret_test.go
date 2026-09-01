@@ -210,31 +210,6 @@ var _ = Describe("Cluster pull_secret_secret", Label("secrets", "cluster"), func
 		Expect(kubeObject.Spec.PullSecret).To(Equal(dockerConfigJSON))
 	})
 
-	It("Rejects a cluster that sets both pull_secret and pull_secret_secret", func() {
-		secretId, _ := createSecret(ctx, map[string][]byte{".dockerconfigjson": []byte(dockerConfigJSON)})
-		templateId := createTemplate(ctx, nil)
-
-		_, err := clustersClient.Create(ctx, publicv1.ClustersCreateRequest_builder{
-			Object: publicv1.Cluster_builder{
-				Metadata: publicv1.Metadata_builder{
-					Name: fmt.Sprintf("test-cluster-%s", uuid.New()[24:32]),
-				}.Build(),
-				Spec: publicv1.ClusterSpec_builder{
-					Template: publicv1.ClusterTemplateReference_builder{Id: templateId}.Build(),
-					TemplateParameters: map[string]*anypb.Any{
-						"my": makeAny(wrapperspb.String("my_value")),
-					},
-					PullSecret:       proto.String(dockerConfigJSON),
-					PullSecretSecret: publicv1.SecretLocalReference_builder{Id: secretId}.Build(),
-				}.Build(),
-			}.Build(),
-		}.Build())
-		Expect(err).To(HaveOccurred())
-		status, ok := grpcstatus.FromError(err)
-		Expect(ok).To(BeTrue())
-		Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-	})
-
 	It("Rejects a cluster that references a nonexistent secret", func() {
 		templateId := createTemplate(ctx, nil)
 
@@ -354,13 +329,16 @@ var _ = Describe("Cluster pull_secret_secret", Label("secrets", "cluster"), func
 		Expect(kubeObject.Spec.PullSecret).To(Equal(dockerConfigJSON))
 	})
 
-	It("Lets a user inline pull_secret override a template default pull_secret_secret", func() {
+	It("Lets a user pull_secret_secret override a template default", func() {
 		secretId, _ := createSecret(ctx, map[string][]byte{".dockerconfigjson": []byte(dockerConfigJSON)})
 		templateId := createTemplate(ctx, privatev1.ClusterTemplateSpecDefaults_builder{
 			PullSecretSecret: privatev1.SecretLocalReference_builder{Id: secretId}.Build(),
 		}.Build())
 
-		const inlinePullSecret = `{"auths":{"inline.example.com":{"auth":"aW5saW5lOnZhbHVl"}}}`
+		const overridePullSecret = `{"auths":{"override.example.com":{"auth":"aW5saW5lOnZhbHVl"}}}`
+		overrideSecretId, _ := createSecret(ctx, map[string][]byte{
+			".dockerconfigjson": []byte(overridePullSecret),
+		})
 		response, err := clustersClient.Create(ctx, publicv1.ClustersCreateRequest_builder{
 			Object: publicv1.Cluster_builder{
 				Metadata: publicv1.Metadata_builder{
@@ -371,7 +349,7 @@ var _ = Describe("Cluster pull_secret_secret", Label("secrets", "cluster"), func
 					TemplateParameters: map[string]*anypb.Any{
 						"my": makeAny(wrapperspb.String("my_value")),
 					},
-					PullSecret: proto.String(inlinePullSecret),
+					PullSecretSecret: publicv1.SecretLocalReference_builder{Id: overrideSecretId}.Build(),
 				}.Build(),
 			}.Build(),
 		}.Build())
@@ -382,6 +360,6 @@ var _ = Describe("Cluster pull_secret_secret", Label("secrets", "cluster"), func
 		})
 
 		kubeObject := waitForClusterOrder(ctx, clusterId)
-		Expect(kubeObject.Spec.PullSecret).To(Equal(inlinePullSecret))
+		Expect(kubeObject.Spec.PullSecret).To(Equal(overridePullSecret))
 	})
 })

@@ -40,7 +40,7 @@ to end users via the public API (list, inspect, and use when creating resources)
 
 Catalog items control **both typed spec fields and template parameters**:
 
-- **Typed spec fields** (e.g., `pull_secret`, `ssh_public_key`, `version_name`, `network.pod_cidr`,
+- **Typed spec fields** (e.g., `pull_secret_secret`, `ssh_public_key`, `version_name`, `network.pod_cidr`,
   `node_sets.<name>.size`) — fields defined in the resource protobuf spec. Simple scalar fields have
   dedicated CLI flags (`--pull-secret`, `--ssh-public-key`, `--pod-cidr`); nested or map-like fields
   such as `node_sets.*` or `network.*` are only settable via `--set` or YAML, because expressing them as
@@ -285,7 +285,7 @@ catalog item, the server rejects any spec field not listed in `field_definitions
 
 | Path | CLI flag | Description |
 |------|----------|-------------|
-| `pull_secret` | `--pull-secret` | Credentials for container image repositories |
+| `pull_secret_secret` | `--pull-secret` | Reference to a Secret containing container registry credentials |
 | `ssh_public_key` | `--ssh-public-key` | SSH public key installed on worker nodes |
 | `version_name` | `--version` | ClusterVersion name for the OpenShift release |
 | `network.pod_cidr` | `--pod-cidr` | Pod network CIDR (default: `10.128.0.0/14`) |

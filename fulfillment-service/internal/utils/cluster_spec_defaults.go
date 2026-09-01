@@ -26,12 +26,8 @@ func ApplyClusterSpecDefaults(spec *privatev1.ClusterSpec, defaults *privatev1.C
 	if spec == nil || defaults == nil {
 		return
 	}
-	if !spec.HasPullSecret() && spec.GetPullSecretSecret() == nil {
-		if defaults.GetPullSecretSecret() != nil {
-			spec.SetPullSecretSecret(proto.Clone(defaults.GetPullSecretSecret()).(*privatev1.SecretLocalReference))
-		} else if defaults.HasPullSecret() {
-			spec.SetPullSecret(defaults.GetPullSecret())
-		}
+	if spec.GetPullSecretSecret() == nil && defaults.GetPullSecretSecret() != nil {
+		spec.SetPullSecretSecret(proto.Clone(defaults.GetPullSecretSecret()).(*privatev1.SecretLocalReference))
 	}
 	if !spec.HasSshPublicKey() && defaults.HasSshPublicKey() {
 		spec.SetSshPublicKey(defaults.GetSshPublicKey())
@@ -61,7 +57,7 @@ func mergeClusterNetworkDefaults(spec *privatev1.ClusterSpec, defaults *privatev
 }
 
 // ValidateClusterSpecFields validates the format of cluster spec fields that are present.
-// Unlike ComputeInstance, cluster credentials (pull_secret, ssh_public_key) are not required
+// Unlike ComputeInstance, cluster credentials (pull secret reference, ssh_public_key) are not required
 // at API time — the Ansible role can fall back to a provider default Secret.
 func ValidateClusterSpecFields(spec *privatev1.ClusterSpec) error {
 	if spec == nil {

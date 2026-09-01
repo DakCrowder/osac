@@ -118,12 +118,9 @@ message ClusterTemplateNodeSet {
 
 // Default values for cluster spec fields. These are applied when a user creates a cluster without
 // providing explicit values. User-provided values always override these defaults.
-//
-// Note: pull_secret is excluded from the public API because it is a write-only field
-// (redacted in GET responses). The private API includes it for server-side default resolution.
 message ClusterTemplateSpecDefaults {
-  // Default pull secret for authenticating to container image repositories.
-  optional string pull_secret = 1 [(cleanapi.field).private = true];
+  reserved 1;
+  reserved "pull_secret";
 
   // Default SSH public key installed on cluster worker nodes.
   optional string ssh_public_key = 2;
@@ -139,8 +136,8 @@ message ClusterTemplateSpecDefaults {
 
   // Default Secret reference for pull secret credentials.
   //
-  // Mutually exclusive with `pull_secret`. When set, clusters created from this template will use
-  // this secret reference unless the user provides an explicit pull_secret or pull_secret_secret.
+  // When set, clusters created from this template will use this secret reference unless the user provides an explicit
+  // `pull_secret_secret` reference.
   SecretLocalReference pull_secret_secret = 6;
 }
 

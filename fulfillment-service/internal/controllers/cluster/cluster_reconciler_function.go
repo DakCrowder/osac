@@ -393,8 +393,6 @@ func (t *task) addExplicitFields(ctx context.Context, spec *osacv1alpha1.Cluster
 			return err
 		}
 		spec.PullSecret = pullSecret
-	} else if clusterSpec.HasPullSecret() {
-		spec.PullSecret = clusterSpec.GetPullSecret()
 	}
 	if clusterSpec.HasSshPublicKey() {
 		spec.SSHPublicKey = clusterSpec.GetSshPublicKey()

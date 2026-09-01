@@ -428,7 +428,6 @@ var _ = Describe("update tenant annotation", func() {
 				Client:    fakeClient,
 			}, nil)
 
-		pullSecret := "my-pull-secret"
 		sshKey := "ssh-ed25519 AAAA..."
 		versionName := "4-17-0"
 		resolvedImage := "quay.io/openshift-release-dev/ocp-release:4.17.0-multi"
@@ -458,7 +457,6 @@ var _ = Describe("update tenant annotation", func() {
 			}.Build(),
 			Spec: privatev1.ClusterSpec_builder{
 				Template:     &privatev1.ClusterTemplateReference{Name: "test-template"},
-				PullSecret:   &pullSecret,
 				SshPublicKey: &sshKey,
 				Version:      &privatev1.ClusterVersionReference{Name: versionName},
 				Network: privatev1.ClusterNetwork_builder{
@@ -492,7 +490,6 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(list.Items).To(HaveLen(1))
 
 		createdCR := list.Items[0]
-		Expect(createdCR.Spec.PullSecret).To(Equal(pullSecret))
 		Expect(createdCR.Spec.SSHPublicKey).To(Equal(sshKey))
 		Expect(createdCR.Spec.ReleaseImage).To(Equal(resolvedImage))
 		Expect(createdCR.Spec.Network).ToNot(BeNil())

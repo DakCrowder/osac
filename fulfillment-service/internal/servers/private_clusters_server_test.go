@@ -1763,9 +1763,9 @@ var _ = Describe("Private clusters server", func() {
 			It("Rejects user value for non-editable field", func() {
 				createCatalogItem("cat-noneditable", true, []*privatev1.FieldDefinition{
 					privatev1.FieldDefinition_builder{
-						Path:     "pull_secret",
+						Path:     "ssh_public_key",
 						Editable: false,
-						Default:  structpb.NewStringValue("forced-secret"),
+						Default:  structpb.NewStringValue("forced-key"),
 					}.Build(),
 				})
 
@@ -1775,8 +1775,8 @@ var _ = Describe("Private clusters server", func() {
 							Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
 						}.Build(),
 						Spec: privatev1.ClusterSpec_builder{
-							CatalogItem: privatev1.ClusterCatalogItemReference_builder{Id: "cat-noneditable"}.Build(),
-							PullSecret:  new("user-secret"),
+							CatalogItem:  privatev1.ClusterCatalogItemReference_builder{Id: "cat-noneditable"}.Build(),
+							SshPublicKey: new("user-key"),
 						}.Build(),
 						Status: privatev1.ClusterStatus_builder{
 							Hub: "my-hub-id",
@@ -1794,7 +1794,7 @@ var _ = Describe("Private clusters server", func() {
 				func(catID string, value string, expectError bool) {
 					createCatalogItem(catID, true, []*privatev1.FieldDefinition{
 						privatev1.FieldDefinition_builder{
-							Path:             "pull_secret",
+							Path:             "ssh_public_key",
 							Editable:         true,
 							ValidationSchema: `{"type":"string","minLength":10}`,
 						}.Build(),
@@ -1806,8 +1806,8 @@ var _ = Describe("Private clusters server", func() {
 								Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
 							}.Build(),
 							Spec: privatev1.ClusterSpec_builder{
-								CatalogItem: privatev1.ClusterCatalogItemReference_builder{Id: catID}.Build(),
-								PullSecret:  new(value),
+								CatalogItem:  privatev1.ClusterCatalogItemReference_builder{Id: catID}.Build(),
+								SshPublicKey: new(value),
 							}.Build(),
 							Status: privatev1.ClusterStatus_builder{
 								Hub: "my-hub-id",
@@ -1819,10 +1819,10 @@ var _ = Describe("Private clusters server", func() {
 						status, ok := grpcstatus.FromError(err)
 						Expect(ok).To(BeTrue())
 						Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-						Expect(status.Message()).To(ContainSubstring("validation failed for field 'pull_secret'"))
+						Expect(status.Message()).To(ContainSubstring("validation failed for field 'ssh_public_key'"))
 					} else {
 						Expect(err).ToNot(HaveOccurred())
-						Expect(response.GetObject().GetSpec().GetPullSecret()).To(Equal(value))
+						Expect(response.GetObject().GetSpec().GetSshPublicKey()).To(Equal(value))
 					}
 				},
 				Entry("rejects value below minLength", "cat-schema-reject", "short-val", true),
@@ -1832,9 +1832,9 @@ var _ = Describe("Private clusters server", func() {
 			It("Applies default for editable field when not provided", func() {
 				createCatalogItem("cat-default", true, []*privatev1.FieldDefinition{
 					privatev1.FieldDefinition_builder{
-						Path:     "pull_secret",
+						Path:     "ssh_public_key",
 						Editable: true,
-						Default:  structpb.NewStringValue("default-secret"),
+						Default:  structpb.NewStringValue("default-key"),
 					}.Build(),
 				})
 
@@ -1853,7 +1853,7 @@ var _ = Describe("Private clusters server", func() {
 				}.Build())
 				Expect(err).ToNot(HaveOccurred())
 				object := response.GetObject()
-				Expect(object.GetSpec().GetPullSecret()).To(Equal("default-secret"))
+				Expect(object.GetSpec().GetSshPublicKey()).To(Equal("default-key"))
 			})
 
 			It("Applies spec defaults from template when created via catalog item", func() {
@@ -3052,6 +3052,15 @@ var _ = Describe("Private clusters server", func() {
 					}.Build(),
 				}.Build()).Do(ctx)
 				Expect(err).ToNot(HaveOccurred())
+
+				_, err = secretsDao.Create().SetObject(privatev1.Secret_builder{
+					Id: "override-secret-id",
+					Metadata: privatev1.Metadata_builder{
+						Name:   "override-secret-name",
+						Tenant: testTenant,
+					}.Build(),
+				}.Build()).Do(ctx)
+				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("Creates a cluster with pull_secret_secret reference by id", func() {
@@ -3101,31 +3110,6 @@ var _ = Describe("Private clusters server", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(response.GetObject().GetSpec().GetPullSecretSecret().GetId()).To(Equal("my-secret-id"))
 				Expect(response.GetObject().GetSpec().GetPullSecretSecret().GetName()).To(Equal("my-secret-name"))
-			})
-
-			It("Rejects create when pull_secret and pull_secret_secret are both set", func() {
-				_, err := server.Create(ctx, privatev1.ClustersCreateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Metadata: privatev1.Metadata_builder{
-							Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
-						}.Build(),
-						Spec: privatev1.ClusterSpec_builder{
-							Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
-							NodeSets: map[string]*privatev1.ClusterNodeSet{
-								"compute": privatev1.ClusterNodeSet_builder{Size: proto.Int32(3)}.Build(),
-								"gpu":     privatev1.ClusterNodeSet_builder{Size: proto.Int32(1)}.Build(),
-							},
-							PullSecret:       proto.String("inline-secret"),
-							PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "my-secret-id"}.Build(),
-						}.Build(),
-						Status: privatev1.ClusterStatus_builder{
-							Hub: "my-hub-id",
-						}.Build(),
-					}.Build(),
-				}.Build())
-				Expect(err).To(HaveOccurred())
-				Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-				Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
 			})
 
 			It("Rejects create when pull_secret_secret references a non-existent secret", func() {
@@ -3182,71 +3166,6 @@ var _ = Describe("Private clusters server", func() {
 				Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("inherited from a shared cluster template"))
 			})
 
-			It("Creates a cluster with inline pull_secret when pull_secret_secret is not set", func() {
-				response, err := server.Create(ctx, privatev1.ClustersCreateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Metadata: privatev1.Metadata_builder{
-							Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
-						}.Build(),
-						Spec: privatev1.ClusterSpec_builder{
-							Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
-							NodeSets: map[string]*privatev1.ClusterNodeSet{
-								"compute": privatev1.ClusterNodeSet_builder{Size: proto.Int32(3)}.Build(),
-								"gpu":     privatev1.ClusterNodeSet_builder{Size: proto.Int32(1)}.Build(),
-							},
-							PullSecret: proto.String("my-inline-secret"),
-						}.Build(),
-						Status: privatev1.ClusterStatus_builder{
-							Hub: "my-hub-id",
-						}.Build(),
-					}.Build(),
-				}.Build())
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.GetObject().GetSpec().GetPullSecret()).To(Equal("my-inline-secret"))
-				Expect(response.GetObject().GetSpec().GetPullSecretSecret()).To(BeNil())
-			})
-
-			It("Rejects update when pull_secret and pull_secret_secret are both set", func() {
-				createResponse, err := server.Create(ctx, privatev1.ClustersCreateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Metadata: privatev1.Metadata_builder{
-							Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
-						}.Build(),
-						Spec: privatev1.ClusterSpec_builder{
-							Template: privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
-							NodeSets: map[string]*privatev1.ClusterNodeSet{
-								"compute": privatev1.ClusterNodeSet_builder{Size: proto.Int32(3)}.Build(),
-								"gpu":     privatev1.ClusterNodeSet_builder{Size: proto.Int32(1)}.Build(),
-							},
-						}.Build(),
-						Status: privatev1.ClusterStatus_builder{
-							Hub: "my-hub-id",
-						}.Build(),
-					}.Build(),
-				}.Build())
-				Expect(err).ToNot(HaveOccurred())
-
-				updateMask, err := fieldmaskpb.New(
-					createResponse.GetObject(),
-					"spec",
-				)
-				Expect(err).ToNot(HaveOccurred())
-
-				_, err = server.Update(ctx, privatev1.ClustersUpdateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Id: createResponse.GetObject().GetId(),
-						Spec: privatev1.ClusterSpec_builder{
-							PullSecret:       proto.String("inline-secret"),
-							PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "my-secret-id"}.Build(),
-						}.Build(),
-					}.Build(),
-					UpdateMask: updateMask,
-				}.Build())
-				Expect(err).To(HaveOccurred())
-				Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-				Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
-			})
-
 			It("Updates a cluster with pull_secret_secret reference", func() {
 				createResponse, err := server.Create(ctx, privatev1.ClustersCreateRequest_builder{
 					Object: privatev1.Cluster_builder{
@@ -3282,45 +3201,6 @@ var _ = Describe("Private clusters server", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updateResponse.GetObject().GetSpec().GetPullSecretSecret().GetId()).To(Equal("my-secret-id"))
 				Expect(updateResponse.GetObject().GetSpec().GetPullSecretSecret().GetName()).To(Equal("my-secret-name"))
-			})
-
-			It("Rejects update when pull_secret_secret conflicts with existing pull_secret in DB", func() {
-				createResponse, err := server.Create(ctx, privatev1.ClustersCreateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Metadata: privatev1.Metadata_builder{
-							Name: fmt.Sprintf("test-%s", uuid.New()[24:32]),
-						}.Build(),
-						Spec: privatev1.ClusterSpec_builder{
-							Template:   privatev1.ClusterTemplateReference_builder{Id: "my-template-id"}.Build(),
-							PullSecret: proto.String("existing-inline-secret"),
-							NodeSets: map[string]*privatev1.ClusterNodeSet{
-								"compute": privatev1.ClusterNodeSet_builder{Size: proto.Int32(3)}.Build(),
-								"gpu":     privatev1.ClusterNodeSet_builder{Size: proto.Int32(1)}.Build(),
-							},
-						}.Build(),
-						Status: privatev1.ClusterStatus_builder{
-							Hub: "my-hub-id",
-						}.Build(),
-					}.Build(),
-				}.Build())
-				Expect(err).ToNot(HaveOccurred())
-
-				// Mask only covers pull_secret_secret — pull_secret stays in DB.
-				updateMask, err := fieldmaskpb.New(createResponse.GetObject(), "spec.pull_secret_secret")
-				Expect(err).ToNot(HaveOccurred())
-
-				_, err = server.Update(ctx, privatev1.ClustersUpdateRequest_builder{
-					Object: privatev1.Cluster_builder{
-						Id: createResponse.GetObject().GetId(),
-						Spec: privatev1.ClusterSpec_builder{
-							PullSecretSecret: privatev1.SecretLocalReference_builder{Id: "my-secret-id"}.Build(),
-						}.Build(),
-					}.Build(),
-					UpdateMask: updateMask,
-				}.Build())
-				Expect(err).To(HaveOccurred())
-				Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-				Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
 			})
 
 			It("Applies pull_secret_secret from template defaults", func() {
@@ -3449,7 +3329,7 @@ var _ = Describe("Private clusters server", func() {
 					To(Equal("shared-pull-secret-id"))
 			})
 
-			It("User-provided pull_secret overrides template pull_secret_secret default", func() {
+			It("User-provided pull_secret_secret overrides the template default", func() {
 				templatesDao, err := dao.NewGenericDAO[*privatev1.ClusterTemplate]().
 					SetLogger(logger).
 					SetTenancyLogic(tenancy).
@@ -3489,7 +3369,9 @@ var _ = Describe("Private clusters server", func() {
 							NodeSets: map[string]*privatev1.ClusterNodeSet{
 								"compute": privatev1.ClusterNodeSet_builder{Size: proto.Int32(3)}.Build(),
 							},
-							PullSecret: proto.String("my-override-secret"),
+							PullSecretSecret: privatev1.SecretLocalReference_builder{
+								Id: "override-secret-id",
+							}.Build(),
 						}.Build(),
 						Status: privatev1.ClusterStatus_builder{
 							Hub: "my-hub-id",
@@ -3497,8 +3379,8 @@ var _ = Describe("Private clusters server", func() {
 					}.Build(),
 				}.Build())
 				Expect(err).ToNot(HaveOccurred())
-				Expect(response.GetObject().GetSpec().GetPullSecret()).To(Equal("my-override-secret"))
-				Expect(response.GetObject().GetSpec().GetPullSecretSecret()).To(BeNil())
+				Expect(response.GetObject().GetSpec().GetPullSecretSecret().GetId()).To(Equal("override-secret-id"))
+				Expect(response.GetObject().GetSpec().GetPullSecretSecret().GetName()).To(Equal("override-secret-name"))
 			})
 		})
 	})

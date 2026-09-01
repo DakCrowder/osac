@@ -428,9 +428,6 @@ func (s *PrivateClustersServer) Update(ctx context.Context,
 	if err != nil {
 		return
 	}
-	if err = s.validatePullSecretMutualExclusionForUpdate(ctx, request); err != nil {
-		return
-	}
 	allowExistingSharedRef := false
 	requestedRef := request.GetObject().GetSpec().GetPullSecretSecret()
 	if requestedRef != nil && requestedRef.GetId() != "" {
@@ -599,59 +596,6 @@ func (s *PrivateClustersServer) lookupTemplate(ctx context.Context,
 		)
 	}
 	return
-}
-
-// validatePullSecretMutualExclusion rejects specs that set both pull_secret and pull_secret_secret.
-func (s *PrivateClustersServer) validatePullSecretMutualExclusion(spec *privatev1.ClusterSpec) error {
-	if spec.HasPullSecret() && spec.GetPullSecretSecret() != nil {
-		return grpcstatus.Errorf(
-			grpccodes.InvalidArgument,
-			"pull_secret and pull_secret_secret are mutually exclusive",
-		)
-	}
-	return nil
-}
-
-// validatePullSecretMutualExclusionForUpdate checks for pull_secret / pull_secret_secret conflicts
-// on Update, accounting for the update mask. When only one of the two fields is in the mask, the
-// other retains its DB value, so a conflict can occur even if the request itself looks clean.
-func (s *PrivateClustersServer) validatePullSecretMutualExclusionForUpdate(
-	ctx context.Context, request *privatev1.ClustersUpdateRequest) error {
-	spec := request.GetObject().GetSpec()
-	mask := request.GetUpdateMask()
-
-	if err := s.validatePullSecretMutualExclusion(spec); err != nil {
-		return err
-	}
-
-	// With a nil/empty mask the entire object is replaced, so no DB state to consider.
-	if mask == nil || len(mask.GetPaths()) == 0 {
-		return nil
-	}
-
-	settingPullSecretSecret := spec.GetPullSecretSecret() != nil && updateIncludesField(mask, "spec.pull_secret_secret")
-	settingPullSecret := spec.HasPullSecret() && updateIncludesField(mask, "spec.pull_secret")
-
-	if !settingPullSecretSecret && !settingPullSecret {
-		return nil
-	}
-
-	existing, found, err := s.getExistingCluster(ctx, request)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	existingSpec := existing.GetSpec()
-
-	if settingPullSecretSecret && existingSpec.HasPullSecret() && !updateIncludesField(mask, "spec.pull_secret") {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "pull_secret and pull_secret_secret are mutually exclusive")
-	}
-	if settingPullSecret && existingSpec.GetPullSecretSecret() != nil && !updateIncludesField(mask, "spec.pull_secret_secret") {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "pull_secret and pull_secret_secret are mutually exclusive")
-	}
-	return nil
 }
 
 func (s *PrivateClustersServer) validatePullSecretSecret(
@@ -1387,11 +1331,6 @@ func (s *PrivateClustersServer) validateAndTransformCluster(ctx context.Context,
 	// Apply spec defaults from the template (user values take precedence):
 	utils.ApplyClusterSpecDefaults(cluster.GetSpec(), template.GetSpecDefaults())
 
-	// Validate mutual exclusion of inline pull_secret and pull_secret_secret reference:
-	if err = s.validatePullSecretMutualExclusion(cluster.GetSpec()); err != nil {
-		return err
-	}
-
 	// Validate pull_secret_secret reference exists:
 	if err = s.validatePullSecretSecret(ctx, cluster.GetSpec(), inheritsPullSecretSecret); err != nil {
 		return err
@@ -1644,9 +1583,6 @@ func (s *PrivateClustersServer) validateAndTransformCatalogItem(ctx context.Cont
 	// Apply spec defaults from the template (user and field_definition values take precedence):
 	utils.ApplyClusterSpecDefaults(cluster.GetSpec(), template.GetSpecDefaults())
 
-	if err := s.validatePullSecretMutualExclusion(cluster.GetSpec()); err != nil {
-		return err
-	}
 	if err := s.validatePullSecretSecret(ctx, cluster.GetSpec(), inheritsPullSecretSecret); err != nil {
 		return err
 	}

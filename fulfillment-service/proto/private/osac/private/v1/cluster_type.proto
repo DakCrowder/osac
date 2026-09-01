@@ -48,6 +48,9 @@ message Cluster {
 
 // The spec contains the details of a cluster as desired by the user.
 message ClusterSpec {
+  reserved 4;
+  reserved "pull_secret";
+
   // Reference to the cluster template. Either `template` or `catalog_item` is required on create.
   //
   // Mutually exclusive with `catalog_item`.
@@ -148,12 +151,6 @@ message ClusterSpec {
   // `DEGRADED` condition.
   map<string, ClusterNodeSet> node_sets = 3;
 
-  // Credentials for authenticating to container image repositories.
-  //
-  // This is write-only: the value is redacted in GET responses. If not provided, the provider's default pull secret
-  // is used.
-  optional string pull_secret = 4;
-
   // SSH public key installed into the `authorized_keys` file on cluster worker nodes.
   //
   // If not provided, the provider's default SSH key is used.
@@ -197,8 +194,8 @@ message ClusterSpec {
 
   // Reference to a Secret resource containing pull secret credentials.
   //
-  // Mutually exclusive with `pull_secret`. When set, the system resolves the referenced Secret to obtain the pull
-  // secret value. The referenced Secret must exist in the same tenant.
+  // When set, the system resolves the referenced Secret to obtain the pull secret value. The referenced Secret must
+  // exist in the same tenant. If not provided, the provider's default pull secret is used.
   SecretLocalReference pull_secret_secret = 11;
 }
 

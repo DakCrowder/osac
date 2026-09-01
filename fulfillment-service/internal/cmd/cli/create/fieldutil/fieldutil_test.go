@@ -14,6 +14,8 @@ language governing permissions and limitations under the License.
 package fieldutil
 
 import (
+	"google.golang.org/protobuf/types/known/wrapperspb"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -29,7 +31,7 @@ var _ = Describe("parseField", func() {
 			Expect(value).To(Equal(expectedValue))
 		},
 		Entry("simple key=value", "vlan=99", "vlan", "99"),
-		Entry("value containing equals", "pull_secret=eyJhdXRocw==", "pull_secret", "eyJhdXRocw=="),
+		Entry("value containing equals", "token=eyJhdXRocw==", "token", "eyJhdXRocw=="),
 		Entry("multiple equals signs", "vlan=99=103", "vlan", "99=103"),
 		Entry("empty value", "key=", "key", ""),
 	)
@@ -64,9 +66,9 @@ var _ = Describe("inferValue", func() {
 var _ = Describe("ApplyFields", func() {
 	It("sets a simple spec field", func() {
 		spec := &publicv1.ClusterSpec{}
-		err := ApplyFields(spec, []string{"pull_secret=my-secret"})
+		err := ApplyFields(spec, []string{"ssh_public_key=my-key"})
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("my-secret"))
+		Expect(spec.GetSshPublicKey()).To(Equal("my-key"))
 	})
 
 	It("sets a nested spec field", func() {
@@ -106,12 +108,10 @@ var _ = Describe("ApplyFields", func() {
 	It("applies multiple fields", func() {
 		spec := &publicv1.ClusterSpec{}
 		err := ApplyFields(spec, []string{
-			"pull_secret=my-secret",
 			"ssh_public_key=ssh-ed25519 AAAA",
 			"template_parameters.vpc_id=vpc-456",
 		})
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("my-secret"))
 		Expect(spec.GetSshPublicKey()).To(Equal("ssh-ed25519 AAAA"))
 		Expect(spec.GetTemplateParameters()).To(HaveKey("vpc_id"))
 	})
@@ -134,8 +134,11 @@ var _ = Describe("ApplyFields", func() {
 
 	It("preserves values with equals signs", func() {
 		spec := &publicv1.ClusterSpec{}
-		err := ApplyFields(spec, []string{"pull_secret=eyJhdXRocw=="})
+		err := ApplyFields(spec, []string{"template_parameters.token=eyJhdXRocw=="})
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetPullSecret()).To(Equal("eyJhdXRocw=="))
+		var token wrapperspb.StringValue
+		err = spec.GetTemplateParameters()["token"].UnmarshalTo(&token)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(token.Value).To(Equal("eyJhdXRocw=="))
 	})
 })
