@@ -263,6 +263,39 @@ var _ = Describe("Private secrets server", func() {
 			Expect(st.Code()).To(Equal(codes.NotFound))
 		})
 
+		It("Rejects deleting a Vault secret referenced by an active resource", func() {
+			created := createVaultSecret()
+			clustersDao, err := dao.NewGenericDAO[*privatev1.Cluster]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = clustersDao.Create().
+				SetObject(privatev1.Cluster_builder{
+					Metadata: privatev1.Metadata_builder{
+						Name:   "referencing-cluster",
+						Tenant: testTenant,
+					}.Build(),
+					Spec: privatev1.ClusterSpec_builder{
+						PullSecretSecret: privatev1.SecretLocalReference_builder{
+							Id: created.GetId(),
+						}.Build(),
+					}.Build(),
+				}.Build()).
+				Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = server.Delete(ctx, privatev1.SecretsDeleteRequest_builder{
+				Id: created.GetId(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			st, ok := status.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(st.Code()).To(Equal(codes.FailedPrecondition))
+			Expect(st.Message()).To(ContainSubstring("in use"))
+		})
+
 		It("Generates UUID for id ignoring caller-provided value", func() {
 			callerProvidedId := "my-custom-id"
 			response, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
