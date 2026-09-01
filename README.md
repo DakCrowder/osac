@@ -39,6 +39,45 @@ cross-module changes can be built and tested locally without publishing intermed
 versions. Go tooling run from the repo root will automatically use the workspace; no
 extra flags are needed.
 
+## AI-assisted development
+
+After clone, run `tools/bootstrap.sh` from this repo root. It vendors
+[osac-ai-skills](https://github.com/osac-project/osac-ai-skills) and
+[flightctl/ai-workflows](https://github.com/flightctl/ai-workflows), clones
+skill-relative sibling repos (see `AGENTS.md`), forks the writeable siblings
+to your GitHub account, and links Claude Code / Cursor / Gemini CLI skill
+discovery. Requires an authenticated `gh` session unless you pass `--no-fork`. This
+repo is the project root. A nested `osac-workspace/osac/` checkout aborts;
+use a standalone clone or worktree instead.
+
+The Feature → PRD → Design → Jira sync → Implement → E2E sequence is documented in
+[osac-ai-skills](https://github.com/osac-project/osac-ai-skills#recommended-skill-sequence)
+(local after bootstrap: `~/.osac-ai-skills/README.md` or
+`.osac-ai-skills/README.md`). See [`AGENTS.md`](AGENTS.md)
+for bootstrap details and component conventions.
+
+## Distrobox (Linux/x86_64)
+
+Requires [podman](https://podman.io/) and [distrobox](https://distrobox.it/) on Linux. Image tool binaries are x86_64 only. From this repo root:
+
+```bash
+make enter                     # Build image and enter
+make claude                    # Run Claude Code inside the distrobox
+make status
+make rebuild
+```
+
+The image lives in `tools/distrobox/`. It shares `$HOME` by default (`HOME_DIR` to override).
+
+## Parallel worktrees
+
+```bash
+source tools/osac-helpers.sh
+osac-new-worktree feat/OSAC-1234
+```
+
+Creates `../osac-OSAC-1234` by default (or `$OSAC_WORKTREE_PARENT/osac-OSAC-1234`), checks out the new branch, and runs `tools/bootstrap.sh` (extra args after the branch are forwarded, e.g. `--no-fork`). Remove with `git worktree remove` on that path from the original clone.
+
 > [!WARNING]
 > Be mindful of the content you commit to this repository. Do not commit any
 > material containing Red Hat confidential content, including information about

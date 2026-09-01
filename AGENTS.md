@@ -14,11 +14,31 @@ OSAC (Open Sovereign AI Cloud) is a fulfillment system for provisioning Kubernet
 
 ## Dev Environment
 
-Local toolchain: install Go, Node.js, buf, kubectl, kind, jira CLI, gh CLI, and jq.
+### Distrobox (Linux/x86_64)
 
-For a local Kind cluster, see `osac-installer/AGENTS.md` (`PLATFORM=kind`, e.g. `make test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`) and `fulfillment-service/README.md` for service-level setup. Distrobox/Containerfile tooling lives in `osac-workspace` and is not ported here.
+See `tools/distrobox/Containerfile`. Requires [podman](https://podman.io/) and [distrobox](https://distrobox.it/) on Linux. Image tool binaries are x86_64 only.
+
+```bash
+make enter                     # Build image and enter distrobox
+make status                    # Check image and distrobox status
+make rebuild                   # Rebuild image from scratch
+```
+
+The distrobox shares your home directory by default (override with `HOME_DIR`). See `make help`.
+
+### Local toolchain
+
+Install Go, Node.js, buf, kubectl, kind, jira CLI, gh CLI, and jq.
+
+### Local Kind cluster
+
+See `osac-installer/AGENTS.md` (`PLATFORM=kind`, e.g. `make test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`) and `fulfillment-service/README.md` for service-level setup.
 
 After clone, run `tools/bootstrap.sh` to vendor AI skills and workflows (see [AI-Assisted Development](#ai-assisted-development)).
+
+### Parallel worktrees
+
+Source [`tools/osac-helpers.sh`](tools/osac-helpers.sh) and run `osac-new-worktree <branch>` from this repo. It adds a sibling worktree (`../osac-<branch-basename>`), runs `tools/bootstrap.sh` there (extra args after the branch are forwarded, e.g. `--no-fork`), and appends Jira context to `.claude/CLAUDE.md` when the branch name contains `OSAC-NNNN`. Override the parent directory with `OSAC_WORKTREE_PARENT`. Clean up with `git worktree remove` on that path (default `../osac-<suffix>`; with `OSAC_WORKTREE_PARENT`, `$OSAC_WORKTREE_PARENT/osac-<suffix>`).
 
 ## Components
 
@@ -39,30 +59,126 @@ covers broader project-level architecture guides and diagrams).
 
 ## External Repos
 
-Clone as siblings for cross-repo workflows:
+`tools/bootstrap.sh` clones these into gitignored directories at this repo
+root (skill-relative paths when this checkout is the project root). By
+default it also forks the writeable three to your GitHub account (`origin` =
+osac-project, `fork` = you — the `$PUSH_REMOTE` that `resolve-remotes.sh`
+reports) so `/create-pr` has a push remote. Never forked:
+`osac-ux`, `.osac-ai-skills`, `.ai-workflows`. Pass `--no-fork` for
+read-only or CI clones (requires no `gh`). Default path requires
+authenticated `gh`.
 
-| Repo | Description |
-|------|-------------|
-| [osac-test-infra](https://github.com/osac-project/osac-test-infra) | E2E pytest tests against the fulfillment-service gRPC API |
-| [osac-ui](https://github.com/osac-project/osac-ui) | Web console (React, PatternFly 6) |
-| [enhancement-proposals](https://github.com/osac-project/enhancement-proposals) | PRDs and design documents (two-stage EP flow) |
-| [docs](https://github.com/osac-project/docs) | Architecture docs and guides |
+| Repo | Local path | Fork remote | Description |
+|------|------------|-------------|-------------|
+| [osac-ui](https://github.com/osac-project/osac-ui) | `osac-ui/` | yes | Web console (React, PatternFly 6) |
+| [osac-ux](https://github.com/osac-project/osac-ux) | `osac-ux/` | no | Read-only UI reference (`@temp-api` types) |
+| [enhancement-proposals](https://github.com/osac-project/enhancement-proposals) | `enhancement-proposals/` | yes | PRDs and design documents (two-stage EP flow) |
+| [docs](https://github.com/osac-project/docs) | `osac-docs/` | yes | Architecture guides and personas |
+
+In-tree [`docs/`](docs/) (`ARCHITECTURE.md`, `CONVENTIONS.md`) is **not**
+the osac-project/docs checkout at `osac-docs/`. Skills read
+`osac-docs/personas.md`.
+
+[osac-test-infra](https://github.com/osac-project/osac-test-infra) is **not**
+cloned. E2E pytest suites live in [`tests/e2e/`](tests/e2e/).
+osac-test-infra keeps infrastructure backends, reusable e2e caller
+workflows, and a `tests/` placeholder — do not add or modify suites
+there. Clone osac-test-infra only for infra or `/debug-e2e` work.
+
+## UI Reference (osac-ux)
+
+`osac-ux/` is cloned read-only from [osac-project/osac-ux](https://github.com/osac-project/osac-ux).
+No PRs against it from backend workflow sessions.
+
+### What to read during /design:research and /implement:ingest
+
+| Path | Purpose |
+|------|---------|
+| `osac-ux/libs/ui-components/src/pages/tenant/` | Tenant screens — form fields, list columns, actions |
+| `osac-ux/libs/ui-components/src/pages/provider/` | Provider admin screens |
+| `osac-ux/libs/ui-components/src/pages/admin/` | Tenant admin screens |
+| `osac-ux/libs/ui-components/src/api/v1/` | @temp-api types — use as primary proto field input |
+| `osac-ux/apps/e2e/cypress/e2e/flows/` | User journeys for Cypress scenario planning |
+
+For **any EP**, if `osac-ux/libs/ui-components/src/api/v1/<resource>.ts` exists,
+use those TypeScript fields as proto names (camelCase → snake_case) and include
+a `## UX Alignment` mapping table. `cd osac-ux && node scripts/gen-api-diff.mjs`
+surfaces API gaps against the current UI.
 
 ## AI-Assisted Development
 
 Run `tools/bootstrap.sh` once after clone (and anytime to refresh). It vendors
 [`osac-ai-skills`](https://github.com/osac-project/osac-ai-skills) and
-[`flightctl/ai-workflows`](https://github.com/flightctl/ai-workflows), then links
-Claude Code / Cursor / Gemini CLI skill discovery under this repo. No separate
-checkout of `osac-workspace` or a manual `osac-ai-skills` clone is required.
-Do not run this script from an `osac/` nested inside `osac-workspace` — it
-aborts (override: `OSAC_ALLOW_NESTED_BOOTSTRAP=1`). Use the workspace
-`./bootstrap.sh` instead.
+[`flightctl/ai-workflows`](https://github.com/flightctl/ai-workflows), clones
+the [External Repos](#external-repos), and links Claude Code / Cursor / Gemini
+CLI skill discovery under this repo. This checkout is the project root — no
+separate `osac-workspace` or manual `osac-ai-skills` clone is required.
+
+A directory nested as `osac-workspace/osac/` still aborts (override:
+`OSAC_ALLOW_NESTED_BOOTSTRAP=1`) so it cannot install a second skill overlay.
+Use a standalone clone or worktree of this repo, not that nested copy. For a
+clone-only sibling pass (no GitHub forks), use `tools/bootstrap.sh --no-fork`.
 
 Edit OSAC-native skills only in `osac-project/osac-ai-skills`. Local `skills/`
-and `.osac-ai-skills/` are bootstrap-managed and gitignored. Bump
+and `.osac-ai-skills/` are bootstrap-managed and gitignored, as are the
+sibling checkouts listed under [External Repos](#external-repos). Bump
 `metadata.version` in any skill you change (see [Critical Rules](#critical-rules)).
 PRD/design ingest reads `.design/context/` (fan-out from osac-ai-skills).
+
+Recommended skill sequence (Feature → PRD → Design → Jira sync → Implement →
+E2E) lives in osac-ai-skills, not in this repo. After bootstrap, see
+`~/.osac-ai-skills/README.md` or `.osac-ai-skills/README.md` (section
+**Recommended Skill Sequence**), or the
+[upstream README](https://github.com/osac-project/osac-ai-skills#recommended-skill-sequence).
+
+## Enhancement Proposals
+
+OSAC uses the flightctl PRD and design skills with project-level template
+overrides. Both documents publish to the `enhancement-proposals` sibling
+cloned by bootstrap.
+
+### Docs repo and paths
+
+- Local path: `./enhancement-proposals/` — give this path when `/prd:publish`
+  or `/design:publish` asks for the docs repo
+- Skip the "release" question — use `enhancements` as the fixed directory prefix
+- Feature directory: `enhancements/<jira-key>-<feature-slug>/`, where
+  `<jira-key>` is the Jira **Feature**-level key exactly as it appears in Jira
+  (no zero-padding), e.g. `enhancements/OSAC-42-example-feature/`
+- PRD filename: `prd.md`; design (EP) filename: `design.md`; both in that
+  same directory
+
+### Feature dimensions and templates
+
+PRD and design ingest must read all files in `.design/context/`:
+
+- **`osac-dimensions.md`** — which cross-cutting dimensions apply; guides
+  clarifying questions, persona/user-story scope, and design coverage (see
+  also `osac-docs/personas.md`)
+- **`review-patterns.md`** — common design-reviewer themes and anti-patterns
+
+Templates live in the sibling clone; section guidance is vendored from
+osac-ai-skills (edit there, not the local copy):
+
+- Design: `enhancement-proposals/guidelines/design_template.md` and
+  `.design/templates/section-guidance.md`
+- PRD: `enhancement-proposals/guidelines/prd_template.md` and
+  `.prd/templates/section-guidance.md`
+
+Design and implement ingest must read the `AGENTS.md` of each affected
+component. For fulfillment-service API work (proto, services,
+request/response), [`fulfillment-service/docs/API.md`](fulfillment-service/docs/API.md)
+is canonical — see also [`fulfillment-service/AGENTS.md`](fulfillment-service/AGENTS.md).
+
+## E2E tests
+
+`/e2e` writes pytest suites in [`tests/e2e/`](tests/e2e/) in this repo.
+Discover patterns from `tests/e2e/<suite>/` and
+[`tests/e2e/core/`](tests/e2e/core/). Do not add, modify, or delete test suites in
+[osac-test-infra](https://github.com/osac-project/osac-test-infra) —
+osac-test-infra's `tests/` tree is a placeholder plus the infrastructure backend
+contract. `/debug-e2e` still lives there; clone that repo only when
+debugging Prow or changing infra backends.
 
 ## Git Workflow
 
@@ -104,10 +220,11 @@ osac/                              Mono-repo: fulfillment-service + osac-operato
   bare-metal-fulfillment-operator  Kubernetes operator for bare metal fulfillment
   osac-csi-driver                  CSI storage driver, routes to vendor backends via storage tiers
   osac-metering                    Metering pipeline for usage events and Kafka publishing
-osac-test-infra                    E2E test playbooks against fulfillment-service gRPC API
+  tests/e2e/                         E2E pytest suites (BMaaS, VMaaS, CaaS, catalog, storage, references)
 osac-ui                            Web console (React, PatternFly 6)
+osac-ux                            Read-only UI reference (@temp-api)
 enhancement-proposals              Design documents and RFCs
-docs                               Architecture docs and guides
+osac-docs                          Architecture docs and guides (osac-project/docs)
 ```
 
 ### Resource Hierarchy

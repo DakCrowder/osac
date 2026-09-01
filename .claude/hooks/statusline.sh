@@ -1,7 +1,8 @@
 #!/bin/bash
-# Project statusline: extends user statusline with osac + ai-workflows sync status
+# Project statusline: extends user statusline with osac, osac-ai-skills, and
+# ai-workflows sync status.
 # Opt out: set CLAUDE_REPO_STATUSLINE_DISABLED=1 in .claude/settings.local.json env
-# to skip the osac + ai-workflows sync status (the user's own statusline still runs)
+# to skip the repo sync status (the user's own statusline still runs)
 
 input=$(cat)
 
@@ -27,9 +28,21 @@ log_info() { printf '%b%s%b' "$GREEN" "$1" "$RESET"; }
 log_warning() { printf '%b%s%b' "$YELLOW" "$1" "$RESET"; }
 log_muted() { printf '%b%s%b' "$GRAY" "$1" "$RESET"; }
 
+# True only for the root of a clone or linked worktree. A leftover directory
+# inside some other checkout would otherwise inherit that parent's branch.
+is_git_work_tree_root() {
+  local dir="$1"
+  [[ -n "$dir" && -d "$dir" ]] \
+    && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    && [[ -z "$(git -C "$dir" rev-parse --show-prefix 2>/dev/null)" ]]
+}
+
 repo_status() {
   local dir="$1" name="$2"
-  [[ -d "$dir" ]] || { log_muted "$name: not found"; return; }
+  if ! is_git_work_tree_root "$dir"; then
+    log_muted "$name: not found"
+    return
+  fi
 
   local branch behind
   branch=$(git -C "$dir" branch --show-current 2>/dev/null) || branch="detached"
@@ -44,9 +57,32 @@ repo_status() {
 }
 
 REPO_DIR="${project_dir:-$(printf '%s' "$input" | jq -r '.workspace.project_dir // empty' 2>/dev/null)}"
-AI_DIR="${HOME}/.ai-workflows"
+
+resolve_osac_ai_skills_dir() {
+  local home_skills="${HOME}/.osac-ai-skills"
+  local repo_skills="${REPO_DIR}/.osac-ai-skills"
+  if is_git_work_tree_root "${home_skills}"; then
+    printf '%s\n' "${home_skills}"
+  else
+    printf '%s\n' "${repo_skills}"
+  fi
+}
+
+resolve_ai_workflows_dir() {
+  local home_wf="${HOME}/.ai-workflows"
+  local repo_wf="${REPO_DIR}/.ai-workflows"
+  if is_git_work_tree_root "${home_wf}"; then
+    printf '%s\n' "${home_wf}"
+  else
+    printf '%s\n' "${repo_wf}"
+  fi
+}
+
+AI_DIR="$(resolve_ai_workflows_dir)"
+SKILLS_DIR="$(resolve_osac_ai_skills_dir)"
 
 ws=$(repo_status "$REPO_DIR" "osac")
+sk=$(repo_status "$SKILLS_DIR" "osac-ai-skills")
 ai=$(repo_status "$AI_DIR" "ai-workflows")
 
-printf '%b %b %b\n' "$ws" "${GRAY}|${RESET}" "$ai"
+printf '%b %b %b %b %b\n' "$ws" "${GRAY}|${RESET}" "$sk" "${GRAY}|${RESET}" "$ai"
