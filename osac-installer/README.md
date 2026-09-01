@@ -290,9 +290,14 @@ for a hub.
 # Generate the kubeconfig
 $ ./scripts/create-hub-access-kubeconfig.sh
 
+# Store the kubeconfig in an OSAC Secret
+$ osac create secret \
+    --name hub-kubeconfig \
+    --from-file=kubeconfig=kubeconfig.hub-access
+
 # Register the Hub
 $ osac create hub \
-    --kubeconfig=kubeconfig.hub-access \
+    --kubeconfig=hub-kubeconfig \
     --id <hub-name> \
     --namespace <project-name>
 ```
