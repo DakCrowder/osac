@@ -27,6 +27,11 @@ var allowedSchemes = map[string]bool{
 	"redfish-virtualmedia+https": true,
 	"idrac-virtualmedia+https":   true,
 	"ilo5-virtualmedia+https":    true,
+	// Metal3/BMO also supports the plaintext-HTTP virtualmedia variants
+	// (e.g. sushy-tools dev BMCs). Plain "http" remains disallowed.
+	"redfish-virtualmedia+http": true,
+	"idrac-virtualmedia+http":   true,
+	"ilo5-virtualmedia+http":    true,
 }
 
 // ValidateBMCAddress validates a fully-formed BMC URL by checking the
