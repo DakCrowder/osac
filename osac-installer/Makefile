@@ -122,6 +122,9 @@ ifeq ($(PLATFORM),kind)
 	helm upgrade --install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
 		--version v1.6.5 --namespace envoy-gateway --create-namespace \
 		--wait --timeout 5m
+	helm upgrade --install strimzi-cluster-operator oci://quay.io/strimzi-helm/strimzi-kafka-operator \
+		--version 1.1.0 --namespace osac-kafka --create-namespace \
+		--wait --timeout 5m
 	helm upgrade --install osac-infra $(INFRA_CHART) \
 		--namespace osac-infra --create-namespace \
 		-f $(INFRA_VALUES) \
@@ -161,6 +164,7 @@ endif
 uninstall-infra: ## Uninstall infrastructure (PLATFORM= PROFILE= NS= required)
 ifeq ($(PLATFORM),kind)
 	helm uninstall osac-infra --namespace osac-infra --ignore-not-found
+	helm uninstall strimzi-cluster-operator --namespace osac-kafka --ignore-not-found
 	helm uninstall envoy-gateway --namespace envoy-gateway --ignore-not-found
 	helm uninstall trust-manager --namespace cert-manager --ignore-not-found
 	helm uninstall cert-manager --namespace cert-manager --ignore-not-found
@@ -273,5 +277,7 @@ helm-validate: helm-lint ## Validate all charts (lint + template)
 			helm template osac-deps $(DEPS_CHART) --values "$$infra" && \
 			helm template osac-infra $(INFRA_CHART) --values "$$infra"; \
 	done
+	@echo "Validating values/dev/kind-infra.yaml..."
+	helm template osac-infra $(INFRA_CHART) --values values/dev/kind-infra.yaml
 	./scripts/validate-keycloak-credentials.sh
 	@echo "Validation passed."

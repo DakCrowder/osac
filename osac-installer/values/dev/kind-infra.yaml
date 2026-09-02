@@ -1,5 +1,5 @@
 # Kind dev environment -- infrastructure values for osac-infra chart.
-# cert-manager, trust-manager, and envoy gateway are installed as
+# cert-manager, trust-manager, envoy gateway, and Strimzi are installed as
 # separate Helm releases by the root Makefile (install-infra).
 # This values file configures the infra chart templates only.
 
@@ -19,7 +19,10 @@ metallb:
 mce:
   enabled: false
 kafka:
-  enabled: false
+  enabled: true
+  replicas: 1
+  storage:
+    size: 10Gi
 
 # --- Envoy Gateway resources (Gateway, GatewayClass, EnvoyProxy) ---
 envoygateway:

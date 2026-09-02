@@ -100,7 +100,6 @@ spec:
             - name: scripts
               mountPath: /scripts
           securityContext:
-            runAsNonRoot: true
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:

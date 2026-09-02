@@ -28,3 +28,6 @@ Components:
 {{- if .Values.bundledPostgres.enabled }}
   - Bundled PostgreSQL (dev/CI)
 {{- end }}
+{{- if .Values.kafka.enabled }}
+  - Kafka cluster (osac-kafka)
+{{- end }}

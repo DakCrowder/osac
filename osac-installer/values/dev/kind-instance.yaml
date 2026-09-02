@@ -165,7 +165,8 @@ capiProvider:
   enabled: false
 
 kafka:
-  enabled: false
+  enabled: true
+  replicas: 1
 
 # --- Vault compatible secret store (OpenBao) ---
 bundledVault:
