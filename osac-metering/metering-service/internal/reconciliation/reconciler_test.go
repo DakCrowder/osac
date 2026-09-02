@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	privatev1 "github.com/osac-project/osac-metering/internal/api/osac/private/v1"
 	"github.com/osac-project/osac-metering/internal/events"
@@ -161,7 +162,7 @@ func makeCI(id, tenant, state string, version int32) *privatev1.ComputeInstance 
 		Spec: &privatev1.ComputeInstanceSpec{
 			InstanceType: &privatev1.InstanceTypeReference{Name: instanceType},
 			DiskImage:    &privatev1.DiskImageReference{Name: "rhel-9"},
-			BootDisk:     &privatev1.ComputeInstanceDisk{SizeGib: 50},
+			BootDisk:     &privatev1.ComputeInstanceDisk{SizeGib: proto.Int32(50)},
 		},
 		Status: &privatev1.ComputeInstanceStatus{State: ciState},
 	}
@@ -579,7 +580,7 @@ var _ = Describe("Reconciler", func() {
 						Spec: &privatev1.ComputeInstanceSpec{
 							InstanceType: &privatev1.InstanceTypeReference{Name: instanceType},
 							DiskImage:    &privatev1.DiskImageReference{Name: "rhel-9"},
-							BootDisk:     &privatev1.ComputeInstanceDisk{SizeGib: 50},
+							BootDisk:     &privatev1.ComputeInstanceDisk{SizeGib: proto.Int32(50)},
 						},
 						Status: &privatev1.ComputeInstanceStatus{
 							State: privatev1.ComputeInstanceState_COMPUTE_INSTANCE_STATE_RUNNING,
@@ -856,7 +857,7 @@ var _ = Describe("Reconciler", func() {
 					Template: &privatev1.ClusterTemplateReference{Name: "ocp-ci-small"},
 					Version:  &privatev1.ClusterVersionReference{Id: "4.17.0", Name: "4.17.0"},
 					NodeSets: map[string]*privatev1.ClusterNodeSet{
-						"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 2},
+						"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(2)},
 					},
 				},
 				Status: &privatev1.ClusterStatus{State: state},

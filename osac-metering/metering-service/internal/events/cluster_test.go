@@ -8,6 +8,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	privatev1 "github.com/osac-project/osac-metering/internal/api/osac/private/v1"
@@ -31,8 +32,8 @@ var _ = Describe("CaaS Cluster Mapper", func() {
 				CatalogItem: &privatev1.ClusterCatalogItemReference{Id: "cluster-catalog-1", Name: "cluster-catalog-1"},
 				Version:     &privatev1.ClusterVersionReference{Id: "4.17.0", Name: "4.17.0"},
 				NodeSets: map[string]*privatev1.ClusterNodeSet{
-					"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 2},
-					"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: 3},
+					"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(2)},
+					"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: proto.Int32(3)},
 				},
 			},
 			Status: &privatev1.ClusterStatus{
