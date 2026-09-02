@@ -373,7 +373,6 @@ oc get configmap fulfillment-service-config-xxx -n fulfillment-system -o jsonpat
       '/fulfillment.v1.Clusters/Create',
       '/fulfillment.v1.Clusters/Delete',
       '/fulfillment.v1.Clusters/Get',
-      '/fulfillment.v1.Clusters/GetKubeconfig',
       '/fulfillment.v1.Clusters/List',
       '/fulfillment.v1.Clusters/Update',
       '/fulfillment.v1.HostTypes/Get',
@@ -1237,8 +1236,17 @@ watch -n 30 './osac get cluster 672c0827-ef03-48d0-b825-689f83ff296b'
 ./osac describe cluster 672c0827-ef03-48d0-b825-689f83ff296b
 # Output includes API URL, console URL, and other details
 
-# Step 6: Get kubeconfig
-./osac get cluster 672c0827-ef03-48d0-b825-689f83ff296b --kubeconfig > cluster-kubeconfig.yaml
+# Step 6: Read the kubeconfig secret reference and retrieve it
+CLUSTER_JSON=$(./osac get cluster 672c0827-ef03-48d0-b825-689f83ff296b -o json)
+KUBECONFIG_SECRET=$(printf '%s' "$CLUSTER_JSON" | jq -r '.status.kubeconfig_secret.name')
+./osac get secret "$KUBECONFIG_SECRET" -o json |
+  jq -r '.data.kubeconfig' | base64 --decode > cluster-kubeconfig.yaml
+
+# The admin password is available the same way from status.password_secret:
+PASSWORD_SECRET=$(printf '%s' "$CLUSTER_JSON" | jq -r '.status.password_secret.name')
+./osac get secret "$PASSWORD_SECRET" -o yaml
+./osac get secret "$PASSWORD_SECRET" -o json |
+  jq -r '.data.password' | base64 --decode
 
 # Step 7: Test cluster access
 KUBECONFIG=cluster-kubeconfig.yaml oc get nodes
@@ -1303,8 +1311,11 @@ done
 # Get cluster details
 ./osac describe cluster "$CLUSTER_ID"
 
-# Save kubeconfig
-./osac get cluster "$CLUSTER_ID" --kubeconfig > "${CLUSTER_NAME}-kubeconfig.yaml"
+# Save kubeconfig from the secret referenced by cluster status
+KUBECONFIG_SECRET=$(./osac get cluster "$CLUSTER_ID" -o json |
+  jq -r '.status.kubeconfig_secret.name')
+./osac get secret "$KUBECONFIG_SECRET" -o json |
+  jq -r '.data.kubeconfig' | base64 --decode > "${CLUSTER_NAME}-kubeconfig.yaml"
 echo "Kubeconfig saved to: ${CLUSTER_NAME}-kubeconfig.yaml"
 
 echo "Cluster $CLUSTER_NAME ($CLUSTER_ID) is ready!"
@@ -1352,7 +1363,8 @@ deploy_test_cluster:
   script:
     - CLUSTER_ID=$(./osac create cluster --template ocp_4_17_small | grep "ID:" | cut -d' ' -f2)
     - echo "CLUSTER_ID=$CLUSTER_ID" >> deploy.env
-    - ./osac get cluster "$CLUSTER_ID" --kubeconfig > "$KUBECONFIG_PATH"
+    - KUBECONFIG_SECRET=$(./osac get cluster "$CLUSTER_ID" -o json | jq -r '.status.kubeconfig_secret.name')
+    - ./osac get secret "$KUBECONFIG_SECRET" -o json | jq -r '.data.kubeconfig' | base64 --decode > "$KUBECONFIG_PATH"
     - export KUBECONFIG="$KUBECONFIG_PATH"
     - oc get nodes
   artifacts:
@@ -1549,8 +1561,11 @@ oc exec deployment/fulfillment-service -n fulfillment-system -c server -- lsof -
 # Delete cluster
 ./osac delete cluster CLUSTER_ID [--force]
 
-# Get kubeconfig
-./osac get cluster CLUSTER_ID --kubeconfig [--output FILE]
+# Get cluster credential secret references
+./osac get cluster CLUSTER_ID -o json | jq '.status.kubeconfig_secret, .status.password_secret'
+
+# Retrieve a referenced secret
+./osac get secret SECRET_NAME -o json|yaml
 ```
 
 **Hub Management:**

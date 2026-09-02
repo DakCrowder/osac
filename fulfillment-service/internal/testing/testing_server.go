@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
-	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/grpc"
 
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
@@ -95,13 +94,11 @@ var _ publicv1.ClustersServer = (*ClustersServerFuncs)(nil)
 type ClustersServerFuncs struct {
 	publicv1.UnimplementedClustersServer
 
-	CreateFunc               func(context.Context, *publicv1.ClustersCreateRequest) (*publicv1.ClustersCreateResponse, error)
-	DeleteFunc               func(context.Context, *publicv1.ClustersDeleteRequest) (*publicv1.ClustersDeleteResponse, error)
-	GetFunc                  func(context.Context, *publicv1.ClustersGetRequest) (*publicv1.ClustersGetResponse, error)
-	ListFunc                 func(context.Context, *publicv1.ClustersListRequest) (*publicv1.ClustersListResponse, error)
-	GetKubeconfigFunc        func(context.Context, *publicv1.ClustersGetKubeconfigRequest) (*publicv1.ClustersGetKubeconfigResponse, error)
-	GetKubeconfigViaHttpFunc func(context.Context, *publicv1.ClustersGetKubeconfigViaHttpRequest) (*httpbody.HttpBody, error)
-	UpdateFunc               func(context.Context, *publicv1.ClustersUpdateRequest) (*publicv1.ClustersUpdateResponse, error)
+	CreateFunc func(context.Context, *publicv1.ClustersCreateRequest) (*publicv1.ClustersCreateResponse, error)
+	DeleteFunc func(context.Context, *publicv1.ClustersDeleteRequest) (*publicv1.ClustersDeleteResponse, error)
+	GetFunc    func(context.Context, *publicv1.ClustersGetRequest) (*publicv1.ClustersGetResponse, error)
+	ListFunc   func(context.Context, *publicv1.ClustersListRequest) (*publicv1.ClustersListResponse, error)
+	UpdateFunc func(context.Context, *publicv1.ClustersUpdateRequest) (*publicv1.ClustersUpdateResponse, error)
 }
 
 func (s *ClustersServerFuncs) Create(ctx context.Context,
@@ -119,18 +116,6 @@ func (s *ClustersServerFuncs) Delete(ctx context.Context,
 func (s *ClustersServerFuncs) Get(ctx context.Context,
 	request *publicv1.ClustersGetRequest) (response *publicv1.ClustersGetResponse, err error) {
 	response, err = s.GetFunc(ctx, request)
-	return
-}
-
-func (s *ClustersServerFuncs) GetKubeconfig(ctx context.Context,
-	request *publicv1.ClustersGetKubeconfigRequest) (response *publicv1.ClustersGetKubeconfigResponse, err error) {
-	response, err = s.GetKubeconfigFunc(ctx, request)
-	return
-}
-
-func (s *ClustersServerFuncs) GetKubeconfigViaHttp(ctx context.Context,
-	request *publicv1.ClustersGetKubeconfigViaHttpRequest) (response *httpbody.HttpBody, err error) {
-	response, err = s.GetKubeconfigViaHttpFunc(ctx, request)
 	return
 }
 

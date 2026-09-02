@@ -337,10 +337,10 @@ var _ = Describe("Cluster reconciler", func() {
 	})
 	Describe("Manages secrets as part of the cluster lifecycle", func() {
 		var (
-			secretsClient privatev1.SecretsClient
+			secretsClient publicv1.SecretsClient
 		)
 		BeforeEach(func() {
-			secretsClient = privatev1.NewSecretsClient(tool.InternalView().AdminConn())
+			secretsClient = publicv1.NewSecretsClient(tool.ExternalView().UserConn())
 		})
 
 		It("Creates and deletes hub secrets when a cluster is created and deleted", func() {
@@ -461,13 +461,13 @@ var _ = Describe("Cluster reconciler", func() {
 			}, time.Minute, time.Second).Should(Succeed())
 
 			// Make sure the secrets exist:
-			configSecret, err := secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+			configSecret, err := secretsClient.Get(ctx, publicv1.SecretsGetRequest_builder{
 				Id: kubeconfigID,
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(configSecret.GetObject().GetData()).To(HaveKey("kubeconfig"))
 
-			passwordSecret, err := secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+			passwordSecret, err := secretsClient.Get(ctx, publicv1.SecretsGetRequest_builder{
 				Id: passwordID,
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
@@ -489,12 +489,12 @@ var _ = Describe("Cluster reconciler", func() {
 					g.Expect(grpcstatus.Code(err)).To(Equal(grpccodes.NotFound))
 				}
 
-				_, err = secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+				_, err = secretsClient.Get(ctx, publicv1.SecretsGetRequest_builder{
 					Id: kubeconfigID,
 				}.Build())
 				g.Expect(err).To(HaveOccurred())
 				verifyNotFound(g, err)
-				_, err = secretsClient.Get(ctx, privatev1.SecretsGetRequest_builder{
+				_, err = secretsClient.Get(ctx, publicv1.SecretsGetRequest_builder{
 					Id: passwordID,
 				}.Build())
 				verifyNotFound(g, err)

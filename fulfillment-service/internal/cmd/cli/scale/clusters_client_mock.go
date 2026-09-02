@@ -15,7 +15,6 @@ import (
 
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
 	gomock "go.uber.org/mock/gomock"
-	httpbody "google.golang.org/genproto/googleapis/api/httpbody"
 	grpc "google.golang.org/grpc"
 )
 
@@ -101,86 +100,6 @@ func (mr *MockClustersClientMockRecorder) Get(ctx, in any, opts ...any) *gomock.
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockClustersClient)(nil).Get), varargs...)
-}
-
-// GetKubeconfig mocks base method.
-func (m *MockClustersClient) GetKubeconfig(ctx context.Context, in *publicv1.ClustersGetKubeconfigRequest, opts ...grpc.CallOption) (*publicv1.ClustersGetKubeconfigResponse, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetKubeconfig", varargs...)
-	ret0, _ := ret[0].(*publicv1.ClustersGetKubeconfigResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetKubeconfig indicates an expected call of GetKubeconfig.
-func (mr *MockClustersClientMockRecorder) GetKubeconfig(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKubeconfig", reflect.TypeOf((*MockClustersClient)(nil).GetKubeconfig), varargs...)
-}
-
-// GetKubeconfigViaHttp mocks base method.
-func (m *MockClustersClient) GetKubeconfigViaHttp(ctx context.Context, in *publicv1.ClustersGetKubeconfigViaHttpRequest, opts ...grpc.CallOption) (*httpbody.HttpBody, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetKubeconfigViaHttp", varargs...)
-	ret0, _ := ret[0].(*httpbody.HttpBody)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetKubeconfigViaHttp indicates an expected call of GetKubeconfigViaHttp.
-func (mr *MockClustersClientMockRecorder) GetKubeconfigViaHttp(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKubeconfigViaHttp", reflect.TypeOf((*MockClustersClient)(nil).GetKubeconfigViaHttp), varargs...)
-}
-
-// GetPassword mocks base method.
-func (m *MockClustersClient) GetPassword(ctx context.Context, in *publicv1.ClustersGetPasswordRequest, opts ...grpc.CallOption) (*publicv1.ClustersGetPasswordResponse, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetPassword", varargs...)
-	ret0, _ := ret[0].(*publicv1.ClustersGetPasswordResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPassword indicates an expected call of GetPassword.
-func (mr *MockClustersClientMockRecorder) GetPassword(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPassword", reflect.TypeOf((*MockClustersClient)(nil).GetPassword), varargs...)
-}
-
-// GetPasswordViaHttp mocks base method.
-func (m *MockClustersClient) GetPasswordViaHttp(ctx context.Context, in *publicv1.ClustersGetPasswordViaHttpRequest, opts ...grpc.CallOption) (*httpbody.HttpBody, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetPasswordViaHttp", varargs...)
-	ret0, _ := ret[0].(*httpbody.HttpBody)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPasswordViaHttp indicates an expected call of GetPasswordViaHttp.
-func (mr *MockClustersClientMockRecorder) GetPasswordViaHttp(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPasswordViaHttp", reflect.TypeOf((*MockClustersClient)(nil).GetPasswordViaHttp), varargs...)
 }
 
 // List mocks base method.
@@ -290,66 +209,6 @@ func (m *MockClustersServer) Get(arg0 context.Context, arg1 *publicv1.ClustersGe
 func (mr *MockClustersServerMockRecorder) Get(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockClustersServer)(nil).Get), arg0, arg1)
-}
-
-// GetKubeconfig mocks base method.
-func (m *MockClustersServer) GetKubeconfig(arg0 context.Context, arg1 *publicv1.ClustersGetKubeconfigRequest) (*publicv1.ClustersGetKubeconfigResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetKubeconfig", arg0, arg1)
-	ret0, _ := ret[0].(*publicv1.ClustersGetKubeconfigResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetKubeconfig indicates an expected call of GetKubeconfig.
-func (mr *MockClustersServerMockRecorder) GetKubeconfig(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKubeconfig", reflect.TypeOf((*MockClustersServer)(nil).GetKubeconfig), arg0, arg1)
-}
-
-// GetKubeconfigViaHttp mocks base method.
-func (m *MockClustersServer) GetKubeconfigViaHttp(arg0 context.Context, arg1 *publicv1.ClustersGetKubeconfigViaHttpRequest) (*httpbody.HttpBody, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetKubeconfigViaHttp", arg0, arg1)
-	ret0, _ := ret[0].(*httpbody.HttpBody)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetKubeconfigViaHttp indicates an expected call of GetKubeconfigViaHttp.
-func (mr *MockClustersServerMockRecorder) GetKubeconfigViaHttp(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKubeconfigViaHttp", reflect.TypeOf((*MockClustersServer)(nil).GetKubeconfigViaHttp), arg0, arg1)
-}
-
-// GetPassword mocks base method.
-func (m *MockClustersServer) GetPassword(arg0 context.Context, arg1 *publicv1.ClustersGetPasswordRequest) (*publicv1.ClustersGetPasswordResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPassword", arg0, arg1)
-	ret0, _ := ret[0].(*publicv1.ClustersGetPasswordResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPassword indicates an expected call of GetPassword.
-func (mr *MockClustersServerMockRecorder) GetPassword(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPassword", reflect.TypeOf((*MockClustersServer)(nil).GetPassword), arg0, arg1)
-}
-
-// GetPasswordViaHttp mocks base method.
-func (m *MockClustersServer) GetPasswordViaHttp(arg0 context.Context, arg1 *publicv1.ClustersGetPasswordViaHttpRequest) (*httpbody.HttpBody, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPasswordViaHttp", arg0, arg1)
-	ret0, _ := ret[0].(*httpbody.HttpBody)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPasswordViaHttp indicates an expected call of GetPasswordViaHttp.
-func (mr *MockClustersServerMockRecorder) GetPasswordViaHttp(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPasswordViaHttp", reflect.TypeOf((*MockClustersServer)(nil).GetPasswordViaHttp), arg0, arg1)
 }
 
 // List mocks base method.

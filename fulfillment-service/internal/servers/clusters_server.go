@@ -18,31 +18,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"google.golang.org/genproto/googleapis/api/httpbody"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/clientcmd"
-	clnt "sigs.k8s.io/controller-runtime/pkg/client"
-
-	osacv1alpha1 "github.com/osac-project/osac/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
-	"github.com/osac-project/osac/fulfillment-service/internal/controllers"
-	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/osac/fulfillment-service/internal/events"
-	"github.com/osac-project/osac/fulfillment-service/internal/jq"
-	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/gvks"
-	"github.com/osac-project/osac/fulfillment-service/internal/kubernetes/labels"
-	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 )
 
 type ClustersServerBuilder struct {
@@ -51,8 +35,6 @@ type ClustersServerBuilder struct {
 	attributionLogic  auth.AttributionLogic
 	tenancyLogic      auth.TenancyLogic
 	metricsRegisterer prometheus.Registerer
-	scheme            *runtime.Scheme
-	secretStore       vault.SecretStore
 }
 
 var _ publicv1.ClustersServer = (*ClustersServer)(nil)
@@ -60,16 +42,10 @@ var _ publicv1.ClustersServer = (*ClustersServer)(nil)
 type ClustersServer struct {
 	publicv1.UnimplementedClustersServer
 
-	logger          *slog.Logger
-	private         privatev1.ClustersServer
-	inMapper        *GenericMapper[*publicv1.Cluster, *privatev1.Cluster]
-	outMapper       *GenericMapper[*privatev1.Cluster, *publicv1.Cluster]
-	jqTool          *jq.Tool
-	hubsDao         *dao.GenericDAO[*privatev1.Hub]
-	secretsServer   privatev1.SecretsServer
-	kubeClients     map[string]clnt.Client
-	kubeClientsLock *sync.Mutex
-	scheme          *runtime.Scheme
+	logger    *slog.Logger
+	private   privatev1.ClustersServer
+	inMapper  *GenericMapper[*publicv1.Cluster, *privatev1.Cluster]
+	outMapper *GenericMapper[*privatev1.Cluster, *publicv1.Cluster]
 }
 
 func NewClustersServer() *ClustersServerBuilder {
@@ -107,20 +83,6 @@ func (b *ClustersServerBuilder) SetMetricsRegisterer(value prometheus.Registerer
 	return b
 }
 
-// SetScheme sets the Kubernetes runtime scheme used for typed API objects.
-// This is mandatory.
-func (b *ClustersServerBuilder) SetScheme(value *runtime.Scheme) *ClustersServerBuilder {
-	b.scheme = value
-	return b
-}
-
-// SetSecretStore sets the Vault-backed secret store used to hydrate kubeconfig secrets.
-// This is optional. When unset, secret data is read from the database only.
-func (b *ClustersServerBuilder) SetSecretStore(value vault.SecretStore) *ClustersServerBuilder {
-	b.secretStore = value
-	return b
-}
-
 func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 	// Check parameters:
 	if b.logger == nil {
@@ -129,28 +91,6 @@ func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 	}
 	if b.tenancyLogic == nil {
 		err = errors.New("tenancy logic is mandatory")
-		return
-	}
-	if b.scheme == nil {
-		err = errors.New("scheme is mandatory")
-		return
-	}
-
-	// Create the JQ tool:
-	jqTool, err := jq.NewTool().
-		SetLogger(b.logger).
-		Build()
-	if err != nil {
-		return
-	}
-
-	// Create the DAOs:
-	hubsDao, err := dao.NewGenericDAO[*privatev1.Hub]().
-		SetLogger(b.logger).
-		SetTenancyLogic(b.tenancyLogic).
-		SetMetricsRegisterer(b.metricsRegisterer).
-		Build()
-	if err != nil {
 		return
 	}
 
@@ -195,30 +135,12 @@ func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 		return
 	}
 
-	secretsServer, err := NewPrivateSecretsServer().
-		SetLogger(b.logger).
-		SetNotifier(b.notifier).
-		SetAttributionLogic(b.attributionLogic).
-		SetTenancyLogic(b.tenancyLogic).
-		SetMetricsRegisterer(b.metricsRegisterer).
-		SetSecretStore(b.secretStore).
-		Build()
-	if err != nil {
-		return
-	}
-
 	// Create and populate the object:
 	result = &ClustersServer{
-		logger:          b.logger,
-		jqTool:          jqTool,
-		hubsDao:         hubsDao,
-		secretsServer:   secretsServer,
-		kubeClients:     map[string]clnt.Client{},
-		kubeClientsLock: &sync.Mutex{},
-		private:         delegate,
-		inMapper:        inMapper,
-		outMapper:       outMapper,
-		scheme:          b.scheme,
+		logger:    b.logger,
+		private:   delegate,
+		inMapper:  inMapper,
+		outMapper: outMapper,
 	}
 	return
 }
@@ -455,347 +377,6 @@ func (s *ClustersServer) Delete(ctx context.Context,
 	return
 }
 
-func (s *ClustersServer) GetKubeconfig(ctx context.Context,
-	request *publicv1.ClustersGetKubeconfigRequest) (response *publicv1.ClustersGetKubeconfigResponse, err error) {
-	kubeconfig, err := s.getKubeconfig(ctx, request.Id)
-	if err != nil {
-		return
-	}
-	response = &publicv1.ClustersGetKubeconfigResponse{
-		Kubeconfig: string(kubeconfig),
-	}
-	return
-}
-
-func (s *ClustersServer) GetKubeconfigViaHttp(ctx context.Context,
-	request *publicv1.ClustersGetKubeconfigViaHttpRequest) (response *httpbody.HttpBody, err error) {
-	kubeconfig, err := s.getKubeconfig(ctx, request.Id)
-	if err != nil {
-		return
-	}
-	response = &httpbody.HttpBody{
-		ContentType: "application/yaml",
-		Data:        kubeconfig,
-	}
-	return
-}
-
-func (s *ClustersServer) getKubeconfig(ctx context.Context, clusterId string) (result []byte, err error) {
-	// Validate the request:
-	if clusterId == "" {
-		err = grpcstatus.Errorf(grpccodes.InvalidArgument, "cluster identifier is mandatory")
-		return
-	}
-
-	// Prepare a logger with additional information about the cluster:
-	logger := s.logger.With(
-		slog.String("cluster_id", clusterId),
-	)
-
-	// Prepare the error to return to the client if some internal error happens:
-	internalErr := grpcstatus.Errorf(
-		grpccodes.Internal,
-		"failed to get kubeconfig for cluster with identifier '%s'",
-		clusterId,
-	)
-
-	// Try to get the secret that contains the kubeconfig:
-	secret, err := s.getHostedClusterSecret(ctx, clusterId, ".status.kubeconfig.name")
-	if err != nil {
-		logger.ErrorContext(
-			ctx,
-			"Failed to get hosted cluster secret",
-			slog.Any("error", err),
-		)
-		err = internalErr
-		return
-	}
-	if secret == nil {
-		err = grpcstatus.Errorf(
-			grpccodes.NotFound,
-			"kubeconfig for cluster with identifier '%s' isn't yet available",
-			clusterId,
-		)
-		return
-	}
-
-	// Check that the secret has the expected entry, and that it isn't empty:
-	kcBytes, ok := secret.Data["kubeconfig"]
-	if !ok {
-		logger.ErrorContext(ctx, "Kubeconfig secret entry doesn't exist")
-		err = internalErr
-		return
-	}
-	if len(kcBytes) == 0 {
-		logger.ErrorContext(ctx, "Kubeconfig secret entry is empty")
-		err = internalErr
-		return
-	}
-
-	// Done:
-	logger.DebugContext(
-		ctx,
-		"Returning kubeconfig",
-		slog.Int("kc_bytes", len(kcBytes)),
-	)
-	result = kcBytes
-	return
-}
-
-func (s *ClustersServer) GetPassword(ctx context.Context,
-	request *publicv1.ClustersGetPasswordRequest) (response *publicv1.ClustersGetPasswordResponse, err error) {
-	password, err := s.getPassword(ctx, request.Id)
-	if err != nil {
-		return
-	}
-	response = &publicv1.ClustersGetPasswordResponse{
-		Password: password,
-	}
-	return
-}
-
-func (s *ClustersServer) GetPasswordViaHttp(ctx context.Context,
-	request *publicv1.ClustersGetPasswordViaHttpRequest) (response *httpbody.HttpBody, err error) {
-	password, err := s.getPassword(ctx, request.Id)
-	if err != nil {
-		return
-	}
-	response = &httpbody.HttpBody{
-		ContentType: "text/plain",
-		Data:        []byte(password),
-	}
-	return
-}
-
-func (s *ClustersServer) getPassword(ctx context.Context, clusterId string) (result string, err error) {
-	// Validate the request:
-	if clusterId == "" {
-		err = grpcstatus.Errorf(grpccodes.InvalidArgument, "cluster identifier is mandatory")
-		return
-	}
-
-	// Prepare a logger with additional information about the cluster:
-	logger := s.logger.With(
-		slog.String("cluster_id", clusterId),
-	)
-
-	// Prepare the error to return to the client if some internal error happens:
-	internalErr := grpcstatus.Errorf(
-		grpccodes.Internal,
-		"failed to get password for cluster with identifier '%s'",
-		clusterId,
-	)
-
-	// Try to get the secret that contains the password:
-	secret, err := s.getHostedClusterSecret(ctx, clusterId, ".status.kubeadminPassword.name")
-	if err != nil {
-		s.logger.ErrorContext(
-			ctx,
-			"Failed to get hosted cluster",
-			slog.Any("error", err),
-		)
-		err = internalErr
-		return
-	}
-	if secret == nil {
-		err = grpcstatus.Errorf(
-			grpccodes.NotFound,
-			"password for cluster with identifier '%s' isn't available yet",
-			clusterId,
-		)
-		return
-	}
-
-	// Check that the secret has the expected entry, and that it isn't empty:
-	passwordBytes, ok := secret.Data["password"]
-	if !ok {
-		logger.ErrorContext(ctx, "Password secret entry doesn't exist")
-		err = internalErr
-		return
-	}
-	if len(passwordBytes) == 0 {
-		logger.ErrorContext(ctx, "Password secret entry is empty")
-		err = internalErr
-		return
-	}
-
-	// Done:
-	logger.DebugContext(
-		ctx,
-		"Returning password",
-		slog.Int("password_bytes", len(passwordBytes)),
-	)
-	result = string(passwordBytes)
-	return
-}
-
-func (s *ClustersServer) getHostedClusterSecret(ctx context.Context, clusterId string,
-	secretField string) (result *corev1.Secret, err error) {
-	// Get the data of the cluster from the private server:
-	getRequest := &privatev1.ClustersGetRequest{}
-	getRequest.SetId(clusterId)
-	getResponse, err := s.private.Get(ctx, getRequest)
-	if err != nil {
-		return
-	}
-	cluster := getResponse.GetObject()
-	if cluster == nil || cluster.GetStatus().GetHub() == "" {
-		return
-	}
-
-	// Get the data of the hub:
-	getHubResponse, err := s.hubsDao.Get().
-		SetId(cluster.GetStatus().GetHub()).
-		Do(ctx)
-	if err != nil {
-		return
-	}
-	hub := getHubResponse.GetObject()
-	if hub == nil {
-		return
-	}
-
-	// Create a client for the hub:
-	hubClient, err := s.getKubeClient(ctx, hub)
-	if err != nil {
-		return
-	}
-
-	// Get the cluster order from the hub:
-	order, err := s.getKubeClusterOrder(ctx, hubClient, hub.GetSpec().GetNamespace(), cluster.GetId())
-	if err != nil {
-		return
-	}
-
-	// Extract the location of the hosted cluster:
-	clusterRef := order.Status.ClusterReference
-	if clusterRef == nil {
-		err = fmt.Errorf("cluster order for '%s' has no cluster reference", cluster.GetId())
-		return
-	}
-	hcKey := clnt.ObjectKey{
-		Namespace: clusterRef.Namespace,
-		Name:      clusterRef.HostedClusterName,
-	}
-
-	// Get the hosted cluster from the hub:
-	hc, err := s.getKubeHostedCluster(ctx, hubClient, hcKey)
-	if err != nil || hc == nil {
-		return
-	}
-
-	// Extract the name of the secret from the hosted cluster:
-	secretKey := clnt.ObjectKey{
-		Namespace: hc.GetNamespace(),
-	}
-	err = s.jqTool.Evaluate(secretField, hc.Object, &secretKey.Name)
-	if err != nil {
-		return
-	}
-
-	// Get the secret from the hub:
-	result, err = s.getKubeSecret(ctx, hubClient, secretKey)
-	return
-}
-
-func (s *ClustersServer) getKubeClient(ctx context.Context, hub *privatev1.Hub) (result clnt.Client, err error) {
-	s.kubeClientsLock.Lock()
-	defer s.kubeClientsLock.Unlock()
-	result, ok := s.kubeClients[hub.Id]
-	if ok {
-		return
-	}
-	result, err = s.createKubeClient(ctx, hub)
-	if err != nil {
-		return
-	}
-	s.kubeClients[hub.Id] = result
-	return
-}
-
-func (s *ClustersServer) createKubeClient(ctx context.Context, hub *privatev1.Hub) (result clnt.Client, err error) {
-	kubeconfig, err := controllers.ResolveHubKubeconfig(ctx, hub.GetSpec(), s.getHubSecret)
-	if err != nil {
-		return
-	}
-	config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
-	if err != nil {
-		return
-	}
-	result, err = clnt.New(config, clnt.Options{Scheme: s.scheme})
-	return
-}
-
-func (s *ClustersServer) getHubSecret(ctx context.Context, id string) (*privatev1.Secret, error) {
-	if s.secretsServer == nil {
-		return nil, fmt.Errorf("secrets server is required to resolve kubeconfig_secret")
-	}
-	response, err := s.secretsServer.Get(ctx, privatev1.SecretsGetRequest_builder{
-		Id: id,
-	}.Build())
-	if err != nil {
-		return nil, err
-	}
-	return response.GetObject(), nil
-}
-
-func (s *ClustersServer) getKubeClusterOrder(ctx context.Context, client clnt.Client,
-	namespace string, id string) (result *osacv1alpha1.ClusterOrder, err error) {
-	list := &osacv1alpha1.ClusterOrderList{}
-	err = client.List(
-		ctx, list,
-		clnt.InNamespace(namespace),
-		clnt.MatchingLabels{
-			labels.ClusterOrderUuid: id,
-		},
-	)
-	if err != nil {
-		return
-	}
-	items := list.Items
-	if len(items) != 1 {
-		err = fmt.Errorf(
-			"expected exactly one cluster order with identifier '%s' but found %d",
-			id, len(items),
-		)
-		return
-	}
-	result = &items[0]
-	return
-}
-
-func (s *ClustersServer) getKubeHostedCluster(ctx context.Context, client clnt.Client,
-	key clnt.ObjectKey) (result *unstructured.Unstructured, err error) {
-	object := &unstructured.Unstructured{}
-	object.SetGroupVersionKind(gvks.HostedCluster)
-	err = client.Get(ctx, key, object)
-	if apierrors.IsNotFound(err) {
-		err = nil
-		return
-	}
-	if err != nil {
-		return
-	}
-	result = object
-	return
-}
-
-func (s *ClustersServer) getKubeSecret(ctx context.Context, client clnt.Client,
-	key clnt.ObjectKey) (result *corev1.Secret, err error) {
-	object := &corev1.Secret{}
-	err = client.Get(ctx, key, object)
-	if apierrors.IsNotFound(err) {
-		err = nil
-		return
-	}
-	if err != nil {
-		return
-	}
-	result = object
-	return
-}
-
-// redactClusterSecrets clears sensitive fields from a public cluster before returning it to the client.
 func redactClusterSecrets(cluster *publicv1.Cluster) {
 	if cluster == nil || cluster.Spec == nil {
 		return
