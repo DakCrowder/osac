@@ -33,6 +33,87 @@ create index storage_backends_password_secret on storage_backends
   ((data->'spec'->'credentials'->'password_secret'->>'id'))
   where data->'spec'->'credentials'->'password_secret'->>'id' is not null;
 
+-- Validate Secret references while taking a row lock that conflicts with a concurrent
+-- Secret soft-delete. Without this reciprocal lock, a delete can observe no committed
+-- dependents while a concurrent dependent creation is still uncommitted.
+create function check_secret_ref_exists() returns trigger as $$
+declare
+  secret_id text;
+  old_secret_id text;
+  found_id text;
+begin
+  secret_id := case tg_table_name
+    when 'clusters' then new.data->'spec'->'pull_secret_secret'->>'id'
+    when 'cluster_templates' then new.data->'spec_defaults'->'pull_secret_secret'->>'id'
+    when 'hubs' then new.data->'spec'->'kubeconfig_secret'->>'id'
+    when 'identity_providers' then new.data->'spec'->'open_id_connect'->'client_secret_secret'->>'id'
+    when 'storage_backends' then new.data->'spec'->'credentials'->'password_secret'->>'id'
+  end;
+
+  if tg_op = 'UPDATE' and old.deletion_timestamp = 'epoch' then
+    old_secret_id := case tg_table_name
+      when 'clusters' then old.data->'spec'->'pull_secret_secret'->>'id'
+      when 'cluster_templates' then old.data->'spec_defaults'->'pull_secret_secret'->>'id'
+      when 'hubs' then old.data->'spec'->'kubeconfig_secret'->>'id'
+      when 'identity_providers' then old.data->'spec'->'open_id_connect'->'client_secret_secret'->>'id'
+      when 'storage_backends' then old.data->'spec'->'credentials'->'password_secret'->>'id'
+    end;
+
+    if secret_id is not distinct from old_secret_id then
+      return new;
+    end if;
+  end if;
+
+  if coalesce(secret_id, '') = '' then
+    return new;
+  end if;
+
+  select id into found_id
+  from secrets
+  where id = secret_id
+    and deletion_timestamp = 'epoch'
+  for share;
+
+  if found_id is null then
+    raise exception using
+      errcode = 'Z0002',
+      message = format('Secret ''%s'' does not exist or has been deleted', secret_id);
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger check_secret_ref_exists
+  before insert or update of data, deletion_timestamp on clusters
+  for each row
+  when (new.deletion_timestamp = 'epoch')
+  execute function check_secret_ref_exists();
+
+create trigger check_secret_ref_exists
+  before insert or update of data, deletion_timestamp on cluster_templates
+  for each row
+  when (new.deletion_timestamp = 'epoch')
+  execute function check_secret_ref_exists();
+
+create trigger check_secret_ref_exists
+  before insert or update of data, deletion_timestamp on hubs
+  for each row
+  when (new.deletion_timestamp = 'epoch')
+  execute function check_secret_ref_exists();
+
+create trigger check_secret_ref_exists
+  before insert or update of data, deletion_timestamp on identity_providers
+  for each row
+  when (new.deletion_timestamp = 'epoch')
+  execute function check_secret_ref_exists();
+
+create trigger check_secret_ref_exists
+  before insert or update of data, deletion_timestamp on storage_backends
+  for each row
+  when (new.deletion_timestamp = 'epoch')
+  execute function check_secret_ref_exists();
+
 create function check_secret_not_in_use() returns trigger as $$
 begin
   if old.data->>'backend' = 'SECRET_BACKEND_HUB' then
