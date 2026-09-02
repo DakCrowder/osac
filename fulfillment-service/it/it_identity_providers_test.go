@@ -82,7 +82,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -137,7 +136,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -202,7 +200,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -231,7 +228,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -285,7 +281,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -342,7 +337,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -394,7 +388,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 							AuthorizationUrl: "https://oidc.example.com/authorize",
 							TokenUrl:         "https://oidc.example.com/token",
 							ClientId:         "test-client",
-							ClientSecret:     "test-secret",
 							Issuer:           "https://oidc.example.com",
 						}.Build(),
 					}.Build(),
@@ -425,7 +418,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "test-client",
-						ClientSecret:     "test-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -451,7 +443,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 						AuthorizationUrl: "https://oidc.example.com/authorize",
 						TokenUrl:         "https://oidc.example.com/token",
 						ClientId:         "other-client",
-						ClientSecret:     "other-secret",
 						Issuer:           "https://oidc.example.com",
 					}.Build(),
 				}.Build(),
@@ -509,7 +500,6 @@ var _ = Describe("Identity provider lifecycle", func() {
 							AuthorizationUrl: "https://oidc.example.com/authorize",
 							TokenUrl:         "https://oidc.example.com/token",
 							ClientId:         fmt.Sprintf("client-%d", i),
-							ClientSecret:     "test-secret",
 							Issuer:           "https://oidc.example.com",
 						}.Build(),
 					}.Build(),
@@ -666,36 +656,6 @@ var _ = Describe("Identity provider client_secret_secret", func() {
 		Expect(code).To(Equal(http.StatusOK))
 	})
 
-	It("Rejects setting both client_secret and client_secret_secret", func() {
-		secretId, _ := createClientSecret(ctx, map[string][]byte{"value": []byte("resolved-client-secret")})
-
-		idpName := fmt.Sprintf("test-both-%s", uuid.New())
-		_, err := client.Create(ctx, privatev1.IdentityProvidersCreateRequest_builder{
-			Object: privatev1.IdentityProvider_builder{
-				Metadata: privatev1.Metadata_builder{
-					Name:   idpName,
-					Tenant: tenantName,
-				}.Build(),
-				Spec: privatev1.IdentityProviderSpec_builder{
-					Title:   "Conflicting Provider",
-					Enabled: true,
-					Oidc: privatev1.OidcConfig_builder{
-						AuthorizationUrl:   "https://oidc.example.com/authorize",
-						TokenUrl:           "https://oidc.example.com/token",
-						ClientId:           "test-client",
-						ClientSecret:       "inline-secret",
-						ClientSecretSecret: privatev1.SecretLocalReference_builder{Id: secretId}.Build(),
-						Issuer:             "https://oidc.example.com",
-					}.Build(),
-				}.Build(),
-			}.Build(),
-		}.Build())
-		Expect(err).To(HaveOccurred())
-		status, ok := grpcstatus.FromError(err)
-		Expect(ok).To(BeTrue())
-		Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-	})
-
 	It("Rejects a nonexistent client_secret_secret reference", func() {
 		idpName := fmt.Sprintf("test-missing-%s", uuid.New())
 		_, err := client.Create(ctx, privatev1.IdentityProvidersCreateRequest_builder{
@@ -746,56 +706,6 @@ var _ = Describe("Identity provider client_secret_secret", func() {
 					}.Build(),
 				}.Build(),
 			}.Build(),
-		}.Build())
-		Expect(err).To(HaveOccurred())
-		status, ok := grpcstatus.FromError(err)
-		Expect(ok).To(BeTrue())
-		Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
-	})
-
-	It("Rejects updating client_secret while client_secret_secret is set", func() {
-		secretId, _ := createClientSecret(ctx, map[string][]byte{"value": []byte("resolved-client-secret")})
-
-		idpName := fmt.Sprintf("test-update-%s", uuid.New())
-		createResponse, err := client.Create(ctx, privatev1.IdentityProvidersCreateRequest_builder{
-			Object: privatev1.IdentityProvider_builder{
-				Metadata: privatev1.Metadata_builder{
-					Name:   idpName,
-					Tenant: tenantName,
-				}.Build(),
-				Spec: privatev1.IdentityProviderSpec_builder{
-					Title:   "Update Conflict Provider",
-					Enabled: true,
-					Oidc: privatev1.OidcConfig_builder{
-						AuthorizationUrl:   "https://oidc.example.com/authorize",
-						TokenUrl:           "https://oidc.example.com/token",
-						ClientId:           "test-client",
-						ClientSecretSecret: privatev1.SecretLocalReference_builder{Id: secretId}.Build(),
-						Issuer:             "https://oidc.example.com",
-					}.Build(),
-				}.Build(),
-			}.Build(),
-		}.Build())
-		Expect(err).ToNot(HaveOccurred())
-		idpID := createResponse.GetObject().GetId()
-		DeferCleanup(func() {
-			_, _ = client.Delete(ctx, privatev1.IdentityProvidersDeleteRequest_builder{
-				Id: idpID,
-			}.Build())
-		})
-
-		// Setting the inline client_secret via the mask while the stored provider still carries a
-		// client_secret_secret (not cleared in the same request) is a mutual-exclusion conflict.
-		_, err = client.Update(ctx, privatev1.IdentityProvidersUpdateRequest_builder{
-			Object: privatev1.IdentityProvider_builder{
-				Id: idpID,
-				Spec: privatev1.IdentityProviderSpec_builder{
-					Oidc: privatev1.OidcConfig_builder{
-						ClientSecret: "inline-secret",
-					}.Build(),
-				}.Build(),
-			}.Build(),
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.oidc.client_secret"}},
 		}.Build())
 		Expect(err).To(HaveOccurred())
 		status, ok := grpcstatus.FromError(err)

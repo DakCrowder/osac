@@ -312,7 +312,6 @@ var _ = Describe("Config Building", func() {
 					AuthorizationUrl: "https://example.com/auth",
 					TokenUrl:         "https://example.com/token",
 					ClientId:         "client-123",
-					ClientSecret:     "secret-456",
 					Issuer:           "https://example.com",
 				}.Build(),
 			}.Build(),
@@ -380,7 +379,6 @@ var _ = Describe("IDP Sync", func() {
 					AuthorizationUrl: "https://accounts.google.com/o/oauth2/auth",
 					TokenUrl:         "https://oauth2.googleapis.com/token",
 					ClientId:         "client-123",
-					ClientSecret:     "secret-456",
 					Issuer:           "https://accounts.google.com",
 				}.Build(),
 			}.Build(),
@@ -410,11 +408,11 @@ var _ = Describe("IDP Sync", func() {
 		Expect(identityProvider.GetStatus().GetPhase()).To(Equal(privatev1.IdentityProviderPhase_IDENTITY_PROVIDER_PHASE_READY))
 	})
 
-	It("should fetch full object with secrets via identityProvidersClient", func() {
+	It("should fetch the full object via identityProvidersClient", func() {
 		// This test verifies the full-object fetch path in syncToIDP
 		// when identityProvidersClient is set (real controller scenario)
 
-		// Create event object with redacted secrets (simulating watch event)
+		// Create an event object simulating a watch event.
 		identityProviderEvent := privatev1.IdentityProvider_builder{
 			Id: "idp-789",
 			Metadata: privatev1.Metadata_builder{
@@ -429,13 +427,12 @@ var _ = Describe("IDP Sync", func() {
 					AuthorizationUrl: "https://auth.example.com/authorize",
 					TokenUrl:         "https://auth.example.com/token",
 					ClientId:         "client-xyz",
-					ClientSecret:     "[REDACTED]", // Simulates watch event redaction
 					Issuer:           "https://auth.example.com",
 				}.Build(),
 			}.Build(),
 		}.Build()
 
-		// Create full object with unredacted secrets (simulating Get response)
+		// Create the full object returned by Get.
 		fullIdentityProvider := privatev1.IdentityProvider_builder{
 			Id: "idp-789",
 			Metadata: privatev1.Metadata_builder{
@@ -450,7 +447,6 @@ var _ = Describe("IDP Sync", func() {
 					AuthorizationUrl: "https://auth.example.com/authorize",
 					TokenUrl:         "https://auth.example.com/token",
 					ClientId:         "client-xyz",
-					ClientSecret:     "actual-secret-123", // Real secret from Get
 					Issuer:           "https://auth.example.com",
 				}.Build(),
 			}.Build(),
@@ -475,9 +471,9 @@ var _ = Describe("IDP Sync", func() {
 		mockClient.EXPECT().
 			CreateIdentityProvider(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(ctx context.Context, tenantName string, idpProvider *idp.IdentityProvider) (*idp.IdentityProvider, error) {
-				// Verify the full object with unredacted secrets was used
+				// Verify the full object was used.
 				Expect(tenantName).To(Equal("tenant-3"))
-				Expect(idpProvider.Config).To(HaveKeyWithValue("clientSecret", "actual-secret-123"))
+				Expect(idpProvider.Config).To(HaveKeyWithValue("clientSecret", ""))
 				Expect(idpProvider.Config).To(HaveKeyWithValue("clientAuthMethod", "client_secret_post"))
 				Expect(idpProvider.Config).To(HaveKeyWithValue("authorizationUrl", "https://auth.example.com/authorize"))
 				return idpProvider, nil
@@ -700,44 +696,6 @@ var _ = Describe("Client secret secret resolution", func() {
 		err := task.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(identityProvider.GetStatus().GetPhase()).To(Equal(privatev1.IdentityProviderPhase_IDENTITY_PROVIDER_PHASE_READY))
-	})
-
-	It("falls back to inline client_secret when client_secret_secret is not set", func() {
-		identityProvider := privatev1.IdentityProvider_builder{
-			Id: "idp-inline",
-			Metadata: privatev1.Metadata_builder{
-				Name:       "oidc-provider",
-				Tenant:     "tenant-1",
-				Finalizers: []string{finalizers.Controller},
-			}.Build(),
-			Spec: privatev1.IdentityProviderSpec_builder{
-				Title:   "OIDC Provider",
-				Enabled: true,
-				Oidc: privatev1.OidcConfig_builder{
-					AuthorizationUrl: "https://auth.example.com/authorize",
-					TokenUrl:         "https://auth.example.com/token",
-					ClientId:         "client-xyz",
-					ClientSecret:     "inline-secret",
-					Issuer:           "https://auth.example.com",
-				}.Build(),
-			}.Build(),
-		}.Build()
-
-		mockClient.EXPECT().
-			CreateIdentityProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, tenantName string, idpProvider *idp.IdentityProvider) (*idp.IdentityProvider, error) {
-				Expect(idpProvider.Config).To(HaveKeyWithValue("clientSecret", "inline-secret"))
-				return idpProvider, nil
-			}).
-			Times(1)
-
-		task := &task{
-			r:                reconciler,
-			identityProvider: identityProvider,
-		}
-
-		err := task.update(ctx)
-		Expect(err).ToNot(HaveOccurred())
 	})
 
 	It("sets ERROR phase when the referenced secret is missing data[\"value\"]", func() {

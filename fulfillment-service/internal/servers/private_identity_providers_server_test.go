@@ -34,11 +34,6 @@ import (
 )
 
 var _ = Describe("Private identity providers server", func() {
-	const (
-		// Test fixture values for credentials (not real secrets)
-		testOidcClientSecret = "test-client-secret-fixture"
-	)
-
 	BeforeEach(func() {
 		// The global default tenant mock returns testTenant. We create a valid tenant here
 		// and use it explicitly in the tests.
@@ -90,7 +85,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -125,7 +119,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -156,7 +149,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -190,7 +182,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -223,7 +214,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -254,7 +244,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -297,7 +286,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -320,7 +308,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -366,7 +353,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://example.com/auth",
 							TokenUrl:         "https://example.com/token",
 							ClientId:         "client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://example.com",
 						}.Build(),
 					}.Build(),
@@ -413,7 +399,6 @@ var _ = Describe("Private identity providers server", func() {
 							AuthorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
 							TokenUrl:         "https://oauth2.googleapis.com/token",
 							ClientId:         "my-client-id",
-							ClientSecret:     testOidcClientSecret,
 							Issuer:           "https://accounts.google.com",
 						}.Build(),
 					}.Build(),
@@ -469,7 +454,6 @@ var _ = Describe("Private identity providers server", func() {
 								AuthorizationUrl: "https://example.com/auth",
 								TokenUrl:         "https://example.com/token",
 								ClientId:         "client-id",
-								ClientSecret:     testOidcClientSecret,
 								Issuer:           "https://example.com",
 							}.Build(),
 						}.Build(),
@@ -514,7 +498,6 @@ var _ = Describe("Private identity providers server", func() {
 								AuthorizationUrl: "https://example.com/auth",
 								TokenUrl:         "https://example.com/token",
 								ClientId:         "client-id",
-								ClientSecret:     testOidcClientSecret,
 								Issuer:           "https://example.com",
 							}.Build(),
 						}.Build(),
@@ -543,7 +526,6 @@ var _ = Describe("Private identity providers server", func() {
 								AuthorizationUrl: "https://example.com/auth",
 								TokenUrl:         "https://example.com/token",
 								ClientId:         "client-id",
-								ClientSecret:     testOidcClientSecret,
 								Issuer:           "https://example.com",
 							}.Build(),
 						}.Build(),
@@ -608,7 +590,6 @@ var _ = Describe("Private identity providers server", func() {
 								AuthorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
 								TokenUrl:         "https://oauth2.googleapis.com/token",
 								ClientId:         "my-client-id",
-								ClientSecret:     testOidcClientSecret,
 								Issuer:           "https://accounts.google.com",
 							}.Build(),
 						}.Build(),
@@ -622,7 +603,6 @@ var _ = Describe("Private identity providers server", func() {
 			Expect(event.GetType()).To(Equal(privatev1.EventType_EVENT_TYPE_OBJECT_CREATED))
 			object := event.GetIdentityProvider()
 			Expect(object).ToNot(BeNil())
-			Expect(object.GetSpec().GetOidc().GetClientSecret()).To(BeEmpty())
 		})
 	})
 
@@ -741,22 +721,6 @@ var _ = Describe("Private identity providers server", func() {
 			Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("shared secrets cannot be used"))
 		})
 
-		It("Rejects create when client_secret and client_secret_secret are both set", func() {
-			_, err := createIdp(privatev1.OidcConfig_builder{
-				AuthorizationUrl: "https://example.com/auth",
-				TokenUrl:         "https://example.com/token",
-				ClientId:         "client-id",
-				ClientSecret:     testOidcClientSecret,
-				Issuer:           "https://example.com",
-				ClientSecretSecret: privatev1.SecretLocalReference_builder{
-					Id: "my-secret-id",
-				}.Build(),
-			}.Build())
-			Expect(err).To(HaveOccurred())
-			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-			Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
-		})
-
 		It("Rejects create when client_secret_secret references a non-existent secret", func() {
 			_, err := createIdp(privatev1.OidcConfig_builder{
 				AuthorizationUrl: "https://example.com/auth",
@@ -783,19 +747,6 @@ var _ = Describe("Private identity providers server", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
 			Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("must specify id or name"))
-		})
-
-		It("Creates an identity provider with inline client_secret when client_secret_secret is not set", func() {
-			response, err := createIdp(privatev1.OidcConfig_builder{
-				AuthorizationUrl: "https://example.com/auth",
-				TokenUrl:         "https://example.com/token",
-				ClientId:         "client-id",
-				ClientSecret:     testOidcClientSecret,
-				Issuer:           "https://example.com",
-			}.Build())
-			Expect(err).ToNot(HaveOccurred())
-			Expect(response.GetObject().GetSpec().GetOidc().GetClientSecret()).To(Equal(testOidcClientSecret))
-			Expect(response.GetObject().GetSpec().GetOidc().GetClientSecretSecret()).To(BeNil())
 		})
 
 		It("Updates an identity provider with client_secret_secret reference", func() {
@@ -827,64 +778,6 @@ var _ = Describe("Private identity providers server", func() {
 			ref := updateResponse.GetObject().GetSpec().GetOidc().GetClientSecretSecret()
 			Expect(ref.GetId()).To(Equal("my-secret-id"))
 			Expect(ref.GetName()).To(Equal("my-secret-name"))
-		})
-
-		It("Rejects update when client_secret_secret conflicts with existing client_secret in DB", func() {
-			createResponse, err := createIdp(privatev1.OidcConfig_builder{
-				AuthorizationUrl: "https://example.com/auth",
-				TokenUrl:         "https://example.com/token",
-				ClientId:         "client-id",
-				ClientSecret:     testOidcClientSecret,
-				Issuer:           "https://example.com",
-			}.Build())
-			Expect(err).ToNot(HaveOccurred())
-
-			updateMask, err := fieldmaskpb.New(createResponse.GetObject(), "spec.oidc.client_secret_secret")
-			Expect(err).ToNot(HaveOccurred())
-
-			_, err = server.Update(ctx, privatev1.IdentityProvidersUpdateRequest_builder{
-				Object: privatev1.IdentityProvider_builder{
-					Id: createResponse.GetObject().GetId(),
-					Spec: privatev1.IdentityProviderSpec_builder{
-						Oidc: privatev1.OidcConfig_builder{
-							ClientSecretSecret: privatev1.SecretLocalReference_builder{
-								Id: "my-secret-id",
-							}.Build(),
-						}.Build(),
-					}.Build(),
-				}.Build(),
-				UpdateMask: updateMask,
-			}.Build())
-			Expect(err).To(HaveOccurred())
-			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-			Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
-		})
-
-		It("Rejects update when client_secret and client_secret_secret are both set", func() {
-			createResponse, err := createIdp(privatev1.OidcConfig_builder{
-				AuthorizationUrl: "https://example.com/auth",
-				TokenUrl:         "https://example.com/token",
-				ClientId:         "client-id",
-				Issuer:           "https://example.com",
-			}.Build())
-			Expect(err).ToNot(HaveOccurred())
-
-			_, err = server.Update(ctx, privatev1.IdentityProvidersUpdateRequest_builder{
-				Object: privatev1.IdentityProvider_builder{
-					Id: createResponse.GetObject().GetId(),
-					Spec: privatev1.IdentityProviderSpec_builder{
-						Oidc: privatev1.OidcConfig_builder{
-							ClientSecret: testOidcClientSecret,
-							ClientSecretSecret: privatev1.SecretLocalReference_builder{
-								Id: "my-secret-id",
-							}.Build(),
-						}.Build(),
-					}.Build(),
-				}.Build(),
-			}.Build())
-			Expect(err).To(HaveOccurred())
-			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
-			Expect(grpcstatus.Convert(err).Message()).To(ContainSubstring("mutually exclusive"))
 		})
 
 		It("Rejects create when client_secret_secret references a secret without a value entry", func() {

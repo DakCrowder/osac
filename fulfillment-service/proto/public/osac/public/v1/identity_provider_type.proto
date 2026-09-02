@@ -67,6 +67,9 @@ message IdentityProviderSpec {
 
 // OidcConfig contains configuration for OpenID Connect identity providers.
 message OidcConfig {
+  reserved 4;
+  reserved "client_secret";
+
   // Authorization endpoint URL where users are redirected to authenticate.
   // Example: "https://accounts.google.com/o/oauth2/v2/auth"
   string authorization_url = 1;
@@ -78,11 +81,6 @@ message OidcConfig {
   // Client identifier issued by the OIDC provider.
   // This is a public identifier for the application.
   string client_id = 3;
-
-  // Client secret for authenticating with the OIDC provider.
-  // This field is write-only and will never be returned in API responses.
-  // Mutually exclusive with `client_secret_secret`.
-  string client_secret = 4;
 
   // Issuer URL that identifies the OIDC provider.
   // Used for validating ID tokens. Must match the 'iss' claim in tokens.
@@ -114,9 +112,8 @@ message OidcConfig {
 
   // Reference to a Secret resource containing the OIDC client secret.
   //
-  // Mutually exclusive with `client_secret`. When set, the system resolves the referenced Secret to obtain the
-  // client secret value. The referenced Secret must exist in the same tenant. The secret data must contain a `value`
-  // entry.
+  // The system resolves the referenced Secret to obtain the client secret value. The referenced Secret must exist in
+  // the same tenant. The secret data must contain a `value` entry.
   SecretLocalReference client_secret_secret = 11;
 }
 

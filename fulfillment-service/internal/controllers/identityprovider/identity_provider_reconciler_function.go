@@ -212,9 +212,8 @@ func (t *task) syncToIDP(ctx context.Context) error {
 	return nil
 }
 
-// resolveClientSecret returns the OIDC client secret, preferring a Secret reference over the
-// inline client_secret field. When a reference is set the secret is fetched via the Secrets API
-// using controller auth and data["value"] is extracted.
+// resolveClientSecret fetches the referenced OIDC client secret via the Secrets API using
+// controller auth and extracts data["value"].
 func (t *task) resolveClientSecret(ctx context.Context, identityProvider *privatev1.IdentityProvider) (string, error) {
 	oidc := identityProvider.GetSpec().GetOidc()
 	if oidc == nil {
@@ -222,7 +221,7 @@ func (t *task) resolveClientSecret(ctx context.Context, identityProvider *privat
 	}
 	ref := oidc.GetClientSecretSecret()
 	if ref == nil {
-		return oidc.GetClientSecret(), nil
+		return "", nil
 	}
 	if t.r.secretsClient == nil {
 		return "", fmt.Errorf("secrets client is required to resolve client_secret_secret")

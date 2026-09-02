@@ -118,7 +118,6 @@ func (b *PrivateIdentityProvidersServerBuilder) Build() (result *PrivateIdentity
 		SetLogger(b.logger).
 		SetService(privatev1.IdentityProviders_ServiceDesc.ServiceName).
 		SetNotifier(b.notifier).
-		SetRedactFunc(s.redact).
 		SetAttributionLogic(b.attributionLogic).
 		SetTenancyLogic(b.tenancyLogic).
 		SetMetricsRegisterer(b.metricsRegisterer).
@@ -152,24 +151,8 @@ func (b *PrivateIdentityProvidersServerBuilder) Build() (result *PrivateIdentity
 	return
 }
 
-// redact clears sensitive fields from the identity provider before it is included in event notification payloads.
-func (s *PrivateIdentityProvidersServer) redact(
-	object *privatev1.IdentityProvider) *privatev1.IdentityProvider {
-	spec := object.GetSpec()
-	if spec != nil {
-		oidc := spec.GetOidc()
-		if oidc != nil {
-			oidc.SetClientSecret("")
-		}
-	}
-	return object
-}
-
 func (s *PrivateIdentityProvidersServer) Create(ctx context.Context,
 	request *privatev1.IdentityProvidersCreateRequest) (response *privatev1.IdentityProvidersCreateResponse, err error) {
-	if err = s.validateClientSecretMutualExclusion(request.GetObject()); err != nil {
-		return
-	}
 	if err = s.validateClientSecretSecret(ctx, request.GetObject()); err != nil {
 		return
 	}
@@ -191,9 +174,6 @@ func (s *PrivateIdentityProvidersServer) Get(ctx context.Context,
 
 func (s *PrivateIdentityProvidersServer) Update(ctx context.Context,
 	request *privatev1.IdentityProvidersUpdateRequest) (response *privatev1.IdentityProvidersUpdateResponse, err error) {
-	if err = s.validateClientSecretMutualExclusionForUpdate(ctx, request); err != nil {
-		return
-	}
 	if err = s.validateClientSecretSecret(ctx, request.GetObject()); err != nil {
 		return
 	}
@@ -214,9 +194,6 @@ func (s *PrivateIdentityProvidersServer) Signal(ctx context.Context,
 }
 
 const (
-	clientSecretField       = "spec.oidc.client_secret"
-	clientSecretSecretField = "spec.oidc.client_secret_secret"
-	clientSecretExclusive   = "client_secret and client_secret_secret are mutually exclusive"
 	// secretValueKey is the key in a Secret's data map that holds the client secret value.
 	secretValueKey = "value"
 )
@@ -226,65 +203,6 @@ func oidcFrom(idp *privatev1.IdentityProvider) *privatev1.OidcConfig {
 		return nil
 	}
 	return idp.GetSpec().GetOidc()
-}
-
-// validateClientSecretMutualExclusion rejects specs that set both client_secret and
-// client_secret_secret.
-func (s *PrivateIdentityProvidersServer) validateClientSecretMutualExclusion(
-	idp *privatev1.IdentityProvider) error {
-	oidc := oidcFrom(idp)
-	if oidc == nil {
-		return nil
-	}
-	if oidc.GetClientSecret() != "" && oidc.GetClientSecretSecret() != nil {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, clientSecretExclusive)
-	}
-	return nil
-}
-
-// validateClientSecretMutualExclusionForUpdate checks for client_secret / client_secret_secret
-// conflicts on Update, accounting for the update mask. When only one of the two fields is in the
-// mask, the other retains its DB value, so a conflict can occur even if the request itself looks
-// clean.
-func (s *PrivateIdentityProvidersServer) validateClientSecretMutualExclusionForUpdate(
-	ctx context.Context, request *privatev1.IdentityProvidersUpdateRequest) error {
-	if err := s.validateClientSecretMutualExclusion(request.GetObject()); err != nil {
-		return err
-	}
-
-	mask := request.GetUpdateMask()
-	if mask == nil || len(mask.GetPaths()) == 0 {
-		return nil
-	}
-
-	oidc := oidcFrom(request.GetObject())
-	settingSecretRef := oidc != nil && oidc.GetClientSecretSecret() != nil &&
-		updateIncludesField(mask, clientSecretSecretField)
-	settingInline := oidc != nil && oidc.GetClientSecret() != "" &&
-		updateIncludesField(mask, clientSecretField)
-
-	if !settingSecretRef && !settingInline {
-		return nil
-	}
-
-	existing, found, err := s.getExistingIdentityProvider(ctx, request)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	existingOidc := oidcFrom(existing)
-
-	if settingSecretRef && existingOidc != nil && existingOidc.GetClientSecret() != "" &&
-		!updateIncludesField(mask, clientSecretField) {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, clientSecretExclusive)
-	}
-	if settingInline && existingOidc != nil && existingOidc.GetClientSecretSecret() != nil &&
-		!updateIncludesField(mask, clientSecretSecretField) {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, clientSecretExclusive)
-	}
-	return nil
 }
 
 func (s *PrivateIdentityProvidersServer) validateClientSecretSecret(
@@ -353,23 +271,4 @@ func (s *PrivateIdentityProvidersServer) validateClientSecretSecret(
 	resolvedRef.SetName(resolved.Name)
 	oidc.SetClientSecretSecret(resolvedRef)
 	return nil
-}
-
-func (s *PrivateIdentityProvidersServer) getExistingIdentityProvider(ctx context.Context,
-	request *privatev1.IdentityProvidersUpdateRequest) (*privatev1.IdentityProvider, bool, error) {
-	object := request.GetObject()
-	if object == nil {
-		return nil, false, nil
-	}
-	id := object.GetId()
-	if id == "" {
-		return nil, false, nil
-	}
-	getResponse, err := s.dao.Get().
-		SetId(id).
-		Do(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	return getResponse.GetObject(), true, nil
 }
