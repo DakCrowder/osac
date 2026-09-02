@@ -19,34 +19,69 @@
 # macos-latest runner, instead of moving the whole unit-tests.yml suite to macOS.
 name: Darwin Keychain Tests
 
+# Required check name: Run darwin keychain tests
+# No paths on pull_request: a trigger path filter leaves that name pending
+# in the merge queue. Skip is on steps; macos-latest only when those files change.
+
 on:
   pull_request:
     branches:
     - main
-    paths:
-    - '.github/workflows/darwin-keychain-tests.yml'
-    - 'fulfillment-service/internal/config/config_secret_store.go'
-    - 'fulfillment-service/internal/config/config_secret_store_darwin.go'
-    - 'fulfillment-service/internal/config/config_secret_store_darwin_test.go'
-    - 'fulfillment-service/internal/config/config_secret_store_other.go'
-    - 'fulfillment-service/internal/config/config_settings.go'
-    - 'fulfillment-service/internal/config/config_settings_test.go'
+  merge_group:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should-run: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.darwin == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'merge_group'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        id: filter
+        with:
+          filters: |
+            darwin:
+              - '.github/workflows/darwin-keychain-tests.yml'
+              - 'fulfillment-service/internal/config/config_secret_store.go'
+              - 'fulfillment-service/internal/config/config_secret_store_darwin.go'
+              - 'fulfillment-service/internal/config/config_secret_store_darwin_test.go'
+              - 'fulfillment-service/internal/config/config_secret_store_other.go'
+              - 'fulfillment-service/internal/config/config_settings.go'
+              - 'fulfillment-service/internal/config/config_settings_test.go'
+
   run-darwin-keychain-tests:
     name: Run darwin keychain tests
-    runs-on: macos-latest
+    needs: changes
+    if: always()
+    runs-on: ${{ needs.changes.outputs.should-run == 'true' && 'macos-latest' || 'ubuntu-latest' }}
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+    - name: Fail if path filter failed
+      if: needs.changes.result != 'success'
+      run: exit 1
+    - id: should-run
+      if: needs.changes.result == 'success' && needs.changes.outputs.should-run == 'true'
+      run: echo "run=true" >> "$GITHUB_OUTPUT"
+    - if: steps.should-run.outputs.run
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         persist-credentials: false
-    - uses: ./.github/actions/setup-go
+    - if: steps.should-run.outputs.run
+      uses: ./.github/actions/setup-go
       with:
         working-directory: fulfillment-service
-    - working-directory: fulfillment-service
+    - if: steps.should-run.outputs.run
+      working-directory: fulfillment-service
       run: |
         go test -run 'TestKeychainAvailable|TestSettingsSave_FallsBackToFileWithNoKeychain' -v ./internal/config/...

@@ -1,10 +1,10 @@
 name: Check generated code
 
 on:
-  # No paths: required names "Check generated code (fulfillment-service)"
-  # and "(osac-operator)" must report on every PR. Skip is on job steps
-  # (dorny + should-run). A trigger path filter leaves those names pending
-  # forever on PRs that only touch other components (e.g. BMFO-only).
+# No paths: required names "Check generated code (fulfillment-service)",
+# "(osac-operator)", and "(osac-metering/metering-service)" must report on
+# every PR. Skip is on job steps (dorny + should-run). A trigger path filter
+# leaves those names pending forever on PRs that only touch other components.
   pull_request:
     branches:
       - main
@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Fixed list so both required names always exist. Skip is on steps
+        # Fixed list so all required names always exist. Skip is on steps
         # (`matrix` is not valid in a job-level `if:`).
         component:
           - fulfillment-service

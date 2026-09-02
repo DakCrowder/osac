@@ -7,17 +7,24 @@ permissions:
 on:
   pull_request:
     branches: [main]
+  merge_group:
 
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       # Fails the check when a newly-introduced dependency carries a known
       # vulnerability (SCA gate). Pin this SHA when actions/dependency-review-action
       # needs to be bumped.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
+          # Required for merge_group; pull_request has defaults but these
+          # expressions also cover that event.
+          base-ref: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
           # Pre-existing stale indirect dependencies in
           # bare-metal-fulfillment-operator/go.mod, never caught because that
           # repo's own CI never ran this check -- not introduced by merging it

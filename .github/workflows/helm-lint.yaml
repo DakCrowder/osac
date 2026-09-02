@@ -1,26 +1,15 @@
 name: Helm Lint
 
+# Required check names: Check Helm CRD sync (osac-operator),
+# Check Helm CRD sync (bare-metal-fulfillment-operator),
+# Lint Helm charts (osac-installer)
+# No paths on pull_request: a trigger path filter leaves those names pending
+# in the merge queue. Skip is on steps (dorny + should-run).
+
 on:
   pull_request:
-    paths:
-      - 'osac-operator/api/**'
-      - 'osac-operator/charts/**'
-      - 'osac-operator/config/crd/bases/**'
-      - 'osac-operator/hack/sync-helm-crds.py'
-      - 'osac-operator/Makefile'
-      - 'bare-metal-fulfillment-operator/api/**'
-      - 'bare-metal-fulfillment-operator/charts/**'
-      - 'bare-metal-fulfillment-operator/config/crd/bases/**'
-      - 'bare-metal-fulfillment-operator/hack/sync-helm-crds.py'
-      - 'bare-metal-fulfillment-operator/Makefile'
-      - 'fulfillment-service/charts/**'
-      - 'osac-aap/charts/**'
-      - 'osac-csi-driver/charts/**'
-      - 'osac-metering/charts/**'
-      - 'osac-installer/charts/**'
-      - 'osac-installer/values/**'
-      - 'osac-installer/ct.yaml'
-      - '.github/workflows/helm-lint.yaml'
+    branches: [main]
+  merge_group:
 
 permissions:
   contents: read
@@ -29,12 +18,18 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       changes: ${{ steps.filter.outputs.changes || '[]' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'merge_group'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         id: filter
         with:
           filters: |
@@ -77,26 +72,30 @@ jobs:
   helm-crds-sync:
     name: Check Helm CRD sync (${{ matrix.component }})
     needs: changes
+    if: always()
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         component: [osac-operator, bare-metal-fulfillment-operator]
     steps:
+    - name: Fail if path filter failed
+      if: needs.changes.result != 'success'
+      run: exit 1
     - name: Check component changes
       id: should-run
-      if: github.event_name != 'pull_request' || contains(fromJSON(needs.changes.outputs.changes), matrix.component)
+      if: needs.changes.result == 'success' && contains(fromJSON(needs.changes.outputs.changes), matrix.component)
       run: echo "run=true" >> "$GITHUB_OUTPUT"
 
     - name: Checkout repository
       if: steps.should-run.outputs.run
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         persist-credentials: false
 
     - name: Set up Go
       if: steps.should-run.outputs.run
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
       with:
         go-version: stable
 
@@ -112,6 +111,7 @@ jobs:
   helm-lint:
     name: Lint Helm chart (${{ matrix.component }}/${{ matrix.chart }})
     needs: changes
+    if: always()
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -137,14 +137,17 @@ jobs:
           - component: osac-metering
             chart: osac-metering
     steps:
+    - name: Fail if path filter failed
+      if: needs.changes.result != 'success'
+      run: exit 1
     - name: Check component changes
       id: should-run
-      if: github.event_name != 'pull_request' || contains(fromJSON(needs.changes.outputs.changes), matrix.component)
+      if: needs.changes.result == 'success' && contains(fromJSON(needs.changes.outputs.changes), matrix.component)
       run: echo "run=true" >> "$GITHUB_OUTPUT"
 
     - name: Checkout repository
       if: steps.should-run.outputs.run
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         persist-credentials: false
 
@@ -187,39 +190,53 @@ jobs:
   helm-lint-installer:
     name: Lint Helm charts (osac-installer)
     needs: changes
+    if: always()
     runs-on: ubuntu-latest
-    if: >
-      github.event_name != 'pull_request' ||
-      contains(fromJSON(needs.changes.outputs.changes), 'osac-installer') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'osac-operator') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'bare-metal-fulfillment-operator') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'fulfillment-service') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'osac-aap') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'osac-csi-driver') ||
-      contains(fromJSON(needs.changes.outputs.changes), 'osac-metering')
     steps:
+    - name: Fail if path filter failed
+      if: needs.changes.result != 'success'
+      run: exit 1
+    - name: Check whether to lint
+      id: should-run
+      if: >-
+        needs.changes.result == 'success' && (
+          contains(fromJSON(needs.changes.outputs.changes), 'osac-installer') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'osac-operator') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'bare-metal-fulfillment-operator') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'fulfillment-service') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'osac-aap') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'osac-csi-driver') ||
+          contains(fromJSON(needs.changes.outputs.changes), 'osac-metering'))
+      run: echo "run=true" >> "$GITHUB_OUTPUT"
+
     - name: Checkout repository
+      if: steps.should-run.outputs.run
       uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
       with:
         persist-credentials: false
 
     - name: Set up Helm
+      if: steps.should-run.outputs.run
       uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
       with:
         version: v3.21.4
 
     - name: Set up chart-testing
+      if: steps.should-run.outputs.run
       uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f  # v2.8.0
 
     - name: Build chart dependencies
+      if: steps.should-run.outputs.run
       working-directory: osac-installer
       run: helm dependency build charts/osac/
 
     - name: Run chart-testing lint
+      if: steps.should-run.outputs.run
       working-directory: osac-installer
       run: ct lint --all --config ct.yaml
 
     - name: Template with CI values
+      if: steps.should-run.outputs.run
       working-directory: osac-installer
       run: |
         set -euo pipefail
@@ -229,6 +246,7 @@ jobs:
         done
 
     - name: Template with environment values
+      if: steps.should-run.outputs.run
       working-directory: osac-installer
       run: |
         set -euo pipefail
