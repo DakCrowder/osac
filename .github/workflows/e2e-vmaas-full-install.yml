@@ -34,8 +34,8 @@ on:
         default: "main"
 
 concurrency:
-  group: e2e-vmaas-full-install-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: e2e-vmaas-full-install-${{ github.event.pull_request.number || (github.event_name == 'merge_group' && 'merge-queue') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
 jobs:
   changes:
