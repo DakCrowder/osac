@@ -1,0 +1,98 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	metal3api "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
+	. "github.com/onsi/ginkgo/v2" //nolint:revive,staticcheck
+	. "github.com/onsi/gomega"    //nolint:revive,staticcheck
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/osac-project/osac/bare-metal-fulfillment-operator/api/v1alpha1"
+)
+
+// Shared helpers for the controller integration suites (Metal3 and BCM). Both
+// run in package controller against the same envtest API server (see
+// suite_test.go); these namespace-parameterized helpers hold the logic once so
+// each suite keeps only a thin, namespace-bound wrapper for readability.
+
+// ensureTestNamespace creates the given namespace, tolerating AlreadyExists so
+// it is safe to call from each suite's BeforeEach.
+func ensureTestNamespace(name string) {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if err := k8sClient.Create(ctx, ns); err != nil && client.IgnoreAlreadyExists(err) != nil {
+		Fail("failed to create test namespace " + name + ": " + err.Error())
+	}
+}
+
+// reconcileInNS reconciles name n times, asserting no error each time, and
+// returns the last result.
+func reconcileInNS(reconciler *BareMetalInstanceReconciler, namespace, name string, n int) ctrl.Result {
+	var result ctrl.Result
+	for range n {
+		var err error
+		result, err = reconciler.Reconcile(ctx, ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	}
+	return result
+}
+
+// reconcileExpectErrInNS reconciles name once and returns the (expected) error.
+func reconcileExpectErrInNS(reconciler *BareMetalInstanceReconciler, namespace, name string) error {
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
+	})
+	return err
+}
+
+func getBMIInNS(namespace, name string) *v1alpha1.BareMetalInstance {
+	bmi := &v1alpha1.BareMetalInstance{}
+	ExpectWithOffset(1, k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, bmi)).To(Succeed())
+	return bmi
+}
+
+func getBMHInNS(namespace, name string) *metal3api.BareMetalHost {
+	bmh := &metal3api.BareMetalHost{}
+	ExpectWithOffset(1, k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, bmh)).To(Succeed())
+	return bmh
+}
+
+// cleanupBMIInNS deletes a BareMetalInstance, stripping finalizers first since
+// no controller runs in envtest to process them.
+func cleanupBMIInNS(namespace, name string) {
+	bmi := &v1alpha1.BareMetalInstance{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, bmi); err != nil {
+		ExpectWithOffset(1, client.IgnoreNotFound(err)).NotTo(HaveOccurred())
+		return
+	}
+	if len(bmi.Finalizers) > 0 {
+		bmi.Finalizers = nil
+		ExpectWithOffset(1, k8sClient.Update(ctx, bmi)).To(Succeed())
+	}
+	ExpectWithOffset(1, client.IgnoreNotFound(k8sClient.Delete(ctx, bmi))).NotTo(HaveOccurred())
+}
+
+func cleanupBMHInNS(namespace, name string) {
+	bmh := &metal3api.BareMetalHost{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	ExpectWithOffset(1, client.IgnoreNotFound(k8sClient.Delete(ctx, bmh))).NotTo(HaveOccurred())
+}

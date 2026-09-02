@@ -89,53 +89,20 @@ func newMetal3Reconciler() *BareMetalInstanceReconciler {
 	)
 }
 
+// These are thin, namespace-bound aliases over the shared integration helpers
+// in baremetalinstance_integration_helpers_test.go.
+
 func reconcileN(reconciler *BareMetalInstanceReconciler, name string, n int) ctrl.Result {
-	var result ctrl.Result
-	for range n {
-		var err error
-		result, err = reconciler.Reconcile(ctx, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: name, Namespace: metal3TestNS},
-		})
-		ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	}
-	return result
+	return reconcileInNS(reconciler, metal3TestNS, name, n)
 }
 
-func getBMI(name string) *v1alpha1.BareMetalInstance {
-	bmi := &v1alpha1.BareMetalInstance{}
-	ExpectWithOffset(1, k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: metal3TestNS}, bmi)).To(Succeed())
-	return bmi
-}
+func getBMI(name string) *v1alpha1.BareMetalInstance { return getBMIInNS(metal3TestNS, name) }
 
-func getBMH(name string) *metal3api.BareMetalHost {
-	bmh := &metal3api.BareMetalHost{}
-	ExpectWithOffset(1, k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: metal3TestNS}, bmh)).To(Succeed())
-	return bmh
-}
+func getBMH(name string) *metal3api.BareMetalHost { return getBMHInNS(metal3TestNS, name) }
 
-// cleanupBMI removes a BareMetalInstance, stripping finalizers first since no
-// controller is running in envtest to handle them.
-func cleanupBMI(name string) {
-	bmi := &v1alpha1.BareMetalInstance{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: metal3TestNS}, bmi); err != nil {
-		ExpectWithOffset(1, client.IgnoreNotFound(err)).NotTo(HaveOccurred())
-		return
-	}
-	if len(bmi.Finalizers) > 0 {
-		bmi.Finalizers = nil
-		ExpectWithOffset(1, k8sClient.Update(ctx, bmi)).To(Succeed())
-	}
-	ExpectWithOffset(1, client.IgnoreNotFound(k8sClient.Delete(ctx, bmi))).NotTo(HaveOccurred())
-}
+func cleanupBMI(name string) { cleanupBMIInNS(metal3TestNS, name) }
 
-func cleanupBMH(name string) {
-	bmh := &metal3api.BareMetalHost{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: metal3TestNS}, bmh); err != nil {
-		ExpectWithOffset(1, client.IgnoreNotFound(err)).NotTo(HaveOccurred())
-		return
-	}
-	ExpectWithOffset(1, client.IgnoreNotFound(k8sClient.Delete(ctx, bmh))).NotTo(HaveOccurred())
-}
+func cleanupBMH(name string) { cleanupBMHInNS(metal3TestNS, name) }
 
 var _ = Describe("BareMetalInstance Metal3 Integration", func() {
 	var ns *corev1.Namespace
@@ -503,7 +470,7 @@ var _ = Describe("BareMetalInstance Metal3 Integration", func() {
 				}
 				miniCfg, err := miniEnv.Start()
 				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = miniEnv.Stop() }()
+				DeferCleanup(func() { _ = miniEnv.Stop() })
 
 				dc, err := discovery.NewDiscoveryClientForConfig(miniCfg)
 				Expect(err).NotTo(HaveOccurred())
