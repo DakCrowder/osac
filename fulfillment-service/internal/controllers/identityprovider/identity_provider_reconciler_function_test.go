@@ -441,7 +441,7 @@ var _ = Describe("IDP Sync", func() {
 				Finalizers: []string{finalizers.Controller},
 			}.Build(),
 			Spec: privatev1.IdentityProviderSpec_builder{
-				Title:   "OIDC Provider",
+				Title:   "Fetched OIDC Provider",
 				Enabled: true,
 				Oidc: privatev1.OidcConfig_builder{
 					AuthorizationUrl: "https://auth.example.com/authorize",
@@ -453,8 +453,10 @@ var _ = Describe("IDP Sync", func() {
 		}.Build()
 
 		// Mock the gRPC client Get call
+		getCalls := 0
 		mockGrpcClient := &mockIdentityProvidersClient{
 			getFunc: func(ctx context.Context, req *privatev1.IdentityProvidersGetRequest) (*privatev1.IdentityProvidersGetResponse, error) {
+				getCalls++
 				Expect(req.GetId()).To(Equal("idp-789"))
 				return privatev1.IdentityProvidersGetResponse_builder{
 					Object: fullIdentityProvider,
@@ -473,6 +475,7 @@ var _ = Describe("IDP Sync", func() {
 			DoAndReturn(func(ctx context.Context, tenantName string, idpProvider *idp.IdentityProvider) (*idp.IdentityProvider, error) {
 				// Verify the full object was used.
 				Expect(tenantName).To(Equal("tenant-3"))
+				Expect(idpProvider.DisplayName).To(Equal("Fetched OIDC Provider"))
 				Expect(idpProvider.Config).To(HaveKeyWithValue("clientSecret", ""))
 				Expect(idpProvider.Config).To(HaveKeyWithValue("clientAuthMethod", "client_secret_post"))
 				Expect(idpProvider.Config).To(HaveKeyWithValue("authorizationUrl", "https://auth.example.com/authorize"))
@@ -487,6 +490,7 @@ var _ = Describe("IDP Sync", func() {
 
 		err := task.update(ctx)
 		Expect(err).ToNot(HaveOccurred())
+		Expect(getCalls).To(Equal(1))
 		Expect(identityProviderEvent.GetStatus().GetPhase()).To(Equal(privatev1.IdentityProviderPhase_IDENTITY_PROVIDER_PHASE_READY))
 	})
 
