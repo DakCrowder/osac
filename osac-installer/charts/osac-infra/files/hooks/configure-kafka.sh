@@ -2,14 +2,27 @@
 set -euo pipefail
 
 KAFKA_NS=osac-kafka
+LISTENER_TLS_SECRET=osac-kafka-listener-tls
 
-# Idempotency guard: skip all work if Kafka is already healthy.
-if oc wait kafka/osac-kafka -n "${KAFKA_NS}" --for=condition=Ready --timeout=5s 2>/dev/null; then
-  echo "Kafka cluster already ready, nothing to do."
-  exit 0
-fi
+wait_for_listener_tls() {
+  echo "Waiting for Kafka listener TLS secret ${LISTENER_TLS_SECRET}..."
+  local deadline=$((SECONDS + 600))
+  until oc get secret "${LISTENER_TLS_SECRET}" -n "${KAFKA_NS}" \
+    -o jsonpath='{.data.tls\.crt}' 2>/dev/null | grep -q .; do
+    if [ "${SECONDS}" -ge "${deadline}" ]; then
+      echo "Timed out waiting for secret ${LISTENER_TLS_SECRET} in ${KAFKA_NS}"
+      exit 1
+    fi
+    sleep 5
+  done
+  echo "Kafka listener TLS secret is ready."
+}
 
-if oc get subscription amq-streams -n "${KAFKA_NS}" &>/dev/null; then
+# Always apply the Kafka CR so listener (and other) spec changes take effect on
+# upgrade. Skip the operator wait when the cluster already exists.
+if oc get kafka/osac-kafka -n "${KAFKA_NS}" &>/dev/null; then
+  echo "Kafka cluster already present, skipping operator wait."
+elif oc get subscription amq-streams -n "${KAFKA_NS}" &>/dev/null; then
   echo "Waiting for AMQ Streams install plan..."
   until INSTALL_PLAN=$(oc get subscription amq-streams -n "${KAFKA_NS}" -o jsonpath='{.status.installPlanRef.name}' 2>/dev/null) && [[ -n "${INSTALL_PLAN}" ]]; do
     sleep 10
@@ -42,6 +55,8 @@ else
   done
   oc wait --for=condition=Available deploy/strimzi-cluster-operator -n "${KAFKA_NS}" --timeout=300s
 fi
+
+wait_for_listener_tls
 
 echo "Applying Kafka cluster..."
 oc apply -f /config/kafka-cluster.yaml

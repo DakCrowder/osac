@@ -1,0 +1,34 @@
+{{- if .Values.kafka.enabled }}
+{{/*
+Listener certificate for the internal TLS listener, issued by the same CA as
+other OSAC components. Clients trust it via the ca-bundle ConfigMap rather than
+the Strimzi-generated cluster CA.
+*/}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: osac-kafka-listener
+  namespace: osac-kafka
+  labels:
+    {{- include "osac-infra.labels" . | nindent 4 }}
+spec:
+  issuerRef:
+    kind: {{ .Values.certs.issuerRef.kind }}
+    name: {{ required "certs.issuerRef.name is required" .Values.certs.issuerRef.name }}
+  secretName: osac-kafka-listener-tls
+  # Strimzi requires the listener private key in unencrypted PKCS#8 form.
+  privateKey:
+    encoding: PKCS8
+    rotationPolicy: Always
+  dnsNames:
+    # Bootstrap service (clients use the FQDN).
+    - osac-kafka-kafka-bootstrap
+    - osac-kafka-kafka-bootstrap.osac-kafka
+    - osac-kafka-kafka-bootstrap.osac-kafka.svc
+    - osac-kafka-kafka-bootstrap.osac-kafka.svc.cluster.local
+    # Per-broker pod DNS via the headless brokers service (covers node-pool names).
+    - "*.osac-kafka-kafka-brokers"
+    - "*.osac-kafka-kafka-brokers.osac-kafka"
+    - "*.osac-kafka-kafka-brokers.osac-kafka.svc"
+    - "*.osac-kafka-kafka-brokers.osac-kafka.svc.cluster.local"
+{{- end }}

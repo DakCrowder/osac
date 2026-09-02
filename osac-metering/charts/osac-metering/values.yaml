@@ -29,11 +29,11 @@ resources:
 
 # Kafka connection and topic naming. Override to point at a different
 # Kafka cluster or to prefix topics for per-instance isolation.
+# TLS trust uses certs.caBundle (the shared OSAC CA), not the Strimzi cluster CA.
 kafka:
   brokers: ""          # default: osac-kafka-kafka-bootstrap.osac-kafka.svc.cluster.local:9093
   clusterName: ""      # default: osac-kafka
   clusterNamespace: "" # default: osac-kafka
-  caSecret: ""         # default: osac-kafka-cluster-ca-cert
 
 # Prefix prepended to all topic names (e.g. "pr101" -> "pr101.osac.metering.lifecycle").
 # When set, this chart skips KafkaTopic/KafkaUser creation (the parent chart owns them).

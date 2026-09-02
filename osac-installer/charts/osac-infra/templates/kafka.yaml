@@ -43,6 +43,11 @@ data:
             tls: true
             authentication:
               type: scram-sha-512
+            configuration:
+              brokerCertChainAndKey:
+                secretName: osac-kafka-listener-tls
+                certificate: tls.crt
+                key: tls.key
         config:
           offsets.topic.replication.factor: {{ .Values.kafka.replicas }}
           transaction.state.log.replication.factor: {{ .Values.kafka.replicas }}

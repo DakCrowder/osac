@@ -66,8 +66,6 @@ spec:
               value: {{ include "osac-metering.kafkaClusterNamespace" . }}
             - name: SASL_SECRET
               value: {{ include "osac-metering.kafkaSaslSecretName" . }}
-            - name: CA_SECRET
-              value: {{ include "osac-metering.kafkaCaSecret" . }}
           volumeMounts:
             - name: kafka-secrets
               mountPath: /etc/kafka-secrets
@@ -106,11 +104,9 @@ spec:
               }
 
               wait_for_secret "${SASL_SECRET}" "${SOURCE_NS}"
-              wait_for_secret "${CA_SECRET}" "${SOURCE_NS}"
 
               oc get secret "${SASL_SECRET}" -n "${SOURCE_NS}" -o jsonpath='{.data.password}' | base64 -d > /etc/kafka-secrets/password
-              oc get secret "${CA_SECRET}" -n "${SOURCE_NS}" -o jsonpath='{.data.ca\.crt}' | base64 -d > /etc/kafka-secrets/ca.crt
-              echo "Kafka secrets fetched."
+              echo "Kafka SASL secret fetched."
       containers:
         - name: {{ include "osac-metering.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -129,7 +125,7 @@ spec:
             - name: KAFKA_BROKERS
               value: {{ include "osac-metering.kafkaBrokers" . | quote }}
             - name: KAFKA_TLS_CA_CERT
-              value: /etc/kafka-secrets/ca.crt
+              value: /etc/ca-bundle/bundle.pem
             - name: KAFKA_SASL_USERNAME
               value: {{ include "osac-metering.kafkaSaslUsername" . | quote }}
             - name: KAFKA_SASL_PASSWORD_FILE

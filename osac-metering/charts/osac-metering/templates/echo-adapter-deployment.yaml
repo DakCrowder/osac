@@ -30,6 +30,9 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 1Mi
+        - name: ca-bundle
+          configMap:
+            name: {{ .Values.certs.caBundle.configMap }}
         - name: tmp
           emptyDir:
             sizeLimit: 10Mi
@@ -43,8 +46,6 @@ spec:
               value: {{ include "osac-metering.kafkaClusterNamespace" . }}
             - name: SASL_SECRET
               value: osac-metering-echo-adapter
-            - name: CA_SECRET
-              value: {{ include "osac-metering.kafkaCaSecret" . }}
           volumeMounts:
             - name: kafka-secrets
               mountPath: /etc/kafka-secrets
@@ -83,11 +84,9 @@ spec:
               }
 
               wait_for_secret "${SASL_SECRET}" "${SOURCE_NS}"
-              wait_for_secret "${CA_SECRET}" "${SOURCE_NS}"
 
               oc get secret "${SASL_SECRET}" -n "${SOURCE_NS}" -o jsonpath='{.data.password}' | base64 -d > /etc/kafka-secrets/password
-              oc get secret "${CA_SECRET}" -n "${SOURCE_NS}" -o jsonpath='{.data.ca\.crt}' | base64 -d > /etc/kafka-secrets/ca.crt
-              echo "Kafka secrets fetched."
+              echo "Kafka SASL secret fetched."
       containers:
         - name: echo-adapter
           image: "{{ .Values.echoAdapter.image.repository }}:{{ .Values.echoAdapter.image.tag }}"
@@ -98,7 +97,7 @@ spec:
             - name: KAFKA_TLS_ENABLED
               value: "true"
             - name: KAFKA_TLS_CA_CERT
-              value: /etc/kafka-secrets/ca.crt
+              value: /etc/ca-bundle/bundle.pem
             - name: KAFKA_SASL_USERNAME
               value: osac-metering-echo-adapter
             - name: KAFKA_CONSUMER_GROUP
@@ -114,6 +113,9 @@ spec:
           volumeMounts:
             - name: kafka-secrets
               mountPath: /etc/kafka-secrets
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /etc/ca-bundle
               readOnly: true
           ports:
             - name: http
