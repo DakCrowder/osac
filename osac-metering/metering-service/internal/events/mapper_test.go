@@ -8,6 +8,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	privatev1 "github.com/osac-project/osac-metering/internal/api/osac/private/v1"
@@ -45,7 +46,7 @@ var _ = Describe("MapWatchEvent", func() {
 					Name: "rhel-10.2-x86_64",
 				},
 				BootDisk: &privatev1.ComputeInstanceDisk{
-					SizeGib: 100,
+					SizeGib: proto.Int32(100),
 				},
 			},
 			Status: &privatev1.ComputeInstanceStatus{

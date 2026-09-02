@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	privatev1 "github.com/osac-project/osac-metering/internal/api/osac/private/v1"
@@ -1086,8 +1087,8 @@ var _ = Describe("Consumer", func() {
 
 		defaultNodeSets := func() map[string]*privatev1.ClusterNodeSet {
 			return map[string]*privatev1.ClusterNodeSet{
-				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 2},
-				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: 3},
+				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(2)},
+				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: proto.Int32(3)},
 			}
 		}
 
@@ -1467,8 +1468,8 @@ var _ = Describe("Consumer", func() {
 
 			// Scale gpu-h100 from 2 to 4, cpu-only stays at 3
 			scaledNodeSets := map[string]*privatev1.ClusterNodeSet{
-				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 4},
-				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: 3},
+				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(4)},
+				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: proto.Int32(3)},
 			}
 			cl := makeCluster("cl-scale", "tenant-1", privatev1.ClusterState_CLUSTER_STATE_READY, scaledNodeSets)
 			event := &privatev1.Event{
@@ -1523,7 +1524,7 @@ var _ = Describe("Consumer", func() {
 			}
 
 			addedNodeSets := map[string]*privatev1.ClusterNodeSet{
-				"tpu-workers": {HostType: &privatev1.HostTypeReference{Name: "tpu-v5"}, Size: 2},
+				"tpu-workers": {HostType: &privatev1.HostTypeReference{Name: "tpu-v5"}, Size: proto.Int32(2)},
 			}
 			cl := makeCluster("cl-add", "tenant-1", privatev1.ClusterState_CLUSTER_STATE_READY, addedNodeSets)
 			event := &privatev1.Event{
@@ -1582,8 +1583,8 @@ var _ = Describe("Consumer", func() {
 			}
 
 			mixedNodeSets := map[string]*privatev1.ClusterNodeSet{
-				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 4},
-				"tpu-workers": {HostType: &privatev1.HostTypeReference{Name: "tpu-v5"}, Size: 2},
+				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(4)},
+				"tpu-workers": {HostType: &privatev1.HostTypeReference{Name: "tpu-v5"}, Size: proto.Int32(2)},
 			}
 			cl := makeCluster("cl-mixed", "tenant-1", privatev1.ClusterState_CLUSTER_STATE_READY, mixedNodeSets)
 			event := &privatev1.Event{
@@ -1649,8 +1650,8 @@ var _ = Describe("Consumer", func() {
 
 			// T1: cpu-workers scales 3->5, gpu-workers stays at 2 (unchanged since T0).
 			clAtT1 := makeCluster("cl-staggered", "tenant-1", privatev1.ClusterState_CLUSTER_STATE_READY, map[string]*privatev1.ClusterNodeSet{
-				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: 5},
-				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 2},
+				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: proto.Int32(5)},
+				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(2)},
 			})
 			clAtT1.Status.StateTransitionTime = timestamppb.New(t1)
 			eventT1 := &privatev1.Event{
@@ -1661,8 +1662,8 @@ var _ = Describe("Consumer", func() {
 
 			// T2: gpu-workers scales 2->4, cpu-workers stays at 5 (unchanged since T1).
 			clAtT2 := makeCluster("cl-staggered", "tenant-1", privatev1.ClusterState_CLUSTER_STATE_READY, map[string]*privatev1.ClusterNodeSet{
-				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: 5},
-				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: 4},
+				"cpu-workers": {HostType: &privatev1.HostTypeReference{Name: "cpu-only"}, Size: proto.Int32(5)},
+				"gpu-workers": {HostType: &privatev1.HostTypeReference{Name: "gpu-h100"}, Size: proto.Int32(4)},
 			})
 			clAtT2.Status.StateTransitionTime = timestamppb.New(t2)
 			eventT2 := &privatev1.Event{
