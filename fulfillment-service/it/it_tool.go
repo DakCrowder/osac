@@ -1347,7 +1347,11 @@ func (t *Tool) registerHub(ctx context.Context) error {
 		if err == nil {
 			break
 		}
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("API not ready after waiting: %w", err)
