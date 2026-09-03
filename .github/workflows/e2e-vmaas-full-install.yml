@@ -108,8 +108,9 @@ jobs:
       pull-requests: read
     outputs:
       # Same ignore list for pull_request and merge_group (OSAC-3879).
-      # schedule / workflow_dispatch always run. e2e-*-gate still if: always()
-      # so ruleset-required checks report when expensive E2E is skipped.
+      # schedule / workflow_dispatch always run. Docs-only: e2e-*-gate still
+      # reports success. Unreadiness skips the gate so the required check
+      # stays pending instead of failing.
       # tests/e2e/** is the full-install suite (OSAC-3593); still run when that
       # tree changes even though `code` ignores **/tests/**.
       should-run: ${{ (github.event_name != 'pull_request' && github.event_name != 'merge_group') || steps.filter.outputs.code == 'true' || steps.filter.outputs.e2e-suite == 'true' }}
@@ -150,18 +151,24 @@ jobs:
               - 'tests/e2e/**'
 
   # OSAC-3370: cheap readiness gate before expensive runners.
-  # Allow: lgtm present, e2e-ready applied by github-actions[bot], or
+  # Allow: lgtm (present or previously applied), e2e-ready by github-actions[bot], or
   # coderabbitai[bot] APPROVED on exact HEAD (blocked by human CHANGES_REQUESTED).
   # Human APPROVED does not unlock. Non-PR events skip this job.
+  # Not ready: ready=false (wait). Do not fail this job.
   e2e-readiness:
+    name: e2e-readiness (vmaas)
     needs: changes
     if: needs.changes.outputs.should-run == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       issues: read
       pull-requests: read
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      reason: ${{ steps.check.outputs.reason }}
     steps:
       - name: Check e2e readiness
+        id: check
         uses: osac-project/osac-test-infra/.github/actions/check-e2e-readiness@main
         with:
           pr-number: ${{ github.event.pull_request.number }}
@@ -189,8 +196,8 @@ jobs:
       always()
       && needs.changes.result == 'success'
       && needs.changes.outputs.should-run == 'true'
-      && (needs.e2e-readiness.result == 'success'
-          || needs.e2e-readiness.result == 'skipped')
+      && (needs.e2e-readiness.result == 'skipped'
+          || needs.e2e-readiness.outputs.ready == 'true')
     permissions:
       contents: read
       # Required by e2e-vmaas-full-install.yml@main's "e2e" job -- only
@@ -253,21 +260,19 @@ jobs:
       # github.ref is the readonly-queue ref).
       enable-ai-diagnostic: ${{ github.ref == 'refs/heads/main' }}
 
+  # Skip this required check on unreadiness so it stays pending (not red).
+  # Docs-only / non-PR / unlocked still report here.
   e2e-vmaas-gate:
-    if: always()
+    if: >-
+      always()
+      && (github.event_name != 'pull_request'
+          || needs.changes.outputs.should-run != 'true'
+          || needs.e2e-readiness.result != 'success'
+          || needs.e2e-readiness.outputs.ready == 'true')
     needs: [changes, e2e-readiness, e2e-vmaas-full-install]
     runs-on: ubuntu-latest
     steps:
-      - if: needs.e2e-readiness.result == 'failure'
-        run: |
-          echo "e2e-readiness failed: expensive e2e is gated until unlock."
-          echo "Need coderabbitai[bot] APPROVED on this HEAD, lgtm, or /e2e-ready."
-          echo "See .github/e2e-readiness.md"
-          echo "Upstream: changes=${{ needs.changes.result }} e2e-readiness=failure full-install=${{ needs.e2e-vmaas-full-install.result }}"
-          exit 1
-      - if: >-
-          needs.e2e-readiness.result != 'failure'
-          && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "Upstream job results:"
           echo "  changes: ${{ needs.changes.result }}"
@@ -276,3 +281,61 @@ jobs:
           echo ""
           echo "One or more upstream jobs failed or were cancelled."
           exit 1
+      - if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.changes.outputs.should-run }}" != "true" ]; then
+            echo "docs-only, skipped"
+          else
+            echo "e2e passed"
+          fi
+
+  # Latest check named e2e-vmaas-gate after the skipped gate job. Forks may
+  # lack checks:write; unreported check is still Expected/Waiting.
+  e2e-vmaas-pending:
+    if: >-
+      always()
+      && github.event_name == 'pull_request'
+      && needs.changes.outputs.should-run == 'true'
+      && needs.e2e-readiness.result == 'success'
+      && needs.e2e-readiness.outputs.ready != 'true'
+    needs: [changes, e2e-readiness, e2e-vmaas-full-install, e2e-vmaas-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - name: Mark e2e-vmaas-gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECK_NAME: e2e-vmaas-gate
+          DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REASON: ${{ needs.e2e-readiness.outputs.reason }}
+        run: |
+          set -euo pipefail
+          title="${REASON:-waiting for e2e unlock}"
+          summary=$(printf '%s\n\n%s\n\n%s' "${title}" \
+            "Need coderabbitai[bot] APPROVED on this HEAD, lgtm, or /e2e-ready." \
+            "See .github/e2e-readiness.md")
+          payload=$(jq -n \
+            --arg name "${CHECK_NAME}" \
+            --arg sha "${HEAD_SHA}" \
+            --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg title "${title}" \
+            --arg details "${DETAILS_URL}" \
+            --arg summary "${summary}" \
+            '{
+              name: $name,
+              head_sha: $sha,
+              status: "in_progress",
+              details_url: $details,
+              started_at: $started,
+              output: {
+                title: $title,
+                summary: $summary
+              }
+            }')
+          if ! gh api "repos/${REPO}/check-runs" --input - <<<"${payload}"; then
+            echo "Could not post in_progress check ${CHECK_NAME} (fork PRs may lack checks:write)."
+            echo "Required check stays unreported until unlock rerun."
+          fi
