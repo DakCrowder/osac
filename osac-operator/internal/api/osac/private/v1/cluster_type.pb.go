@@ -448,8 +448,9 @@ type ClusterSpec struct {
 	AutoExternalIpAttachment *bool `protobuf:"varint,10,opt,name=auto_external_ip_attachment,json=autoExternalIpAttachment,proto3,oneof" json:"auto_external_ip_attachment,omitempty"`
 	// Reference to a Secret resource containing pull secret credentials.
 	//
-	// When set, the system resolves the referenced Secret to obtain the pull secret value. The referenced Secret must
-	// exist in the same tenant. If not provided, the provider's default pull secret is used.
+	// When set, the system resolves the referenced Secret to obtain the pull secret value. A directly referenced Secret
+	// must exist in the same tenant. When unset, a shared Secret may be inherited if the shared template provides it as
+	// the default pull secret.
 	PullSecretSecret *SecretLocalReference `protobuf:"bytes,11,opt,name=pull_secret_secret,json=pullSecretSecret,proto3" json:"pull_secret_secret,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -819,8 +820,9 @@ type ClusterSpec_builder struct {
 	AutoExternalIpAttachment *bool
 	// Reference to a Secret resource containing pull secret credentials.
 	//
-	// When set, the system resolves the referenced Secret to obtain the pull secret value. The referenced Secret must
-	// exist in the same tenant. If not provided, the provider's default pull secret is used.
+	// When set, the system resolves the referenced Secret to obtain the pull secret value. A directly referenced Secret
+	// must exist in the same tenant. When unset, a shared Secret may be inherited if the shared template provides it as
+	// the default pull secret.
 	PullSecretSecret *SecretLocalReference
 }
 

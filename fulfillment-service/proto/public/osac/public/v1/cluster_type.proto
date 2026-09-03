@@ -191,8 +191,9 @@ message ClusterSpec {
 
   // Reference to a Secret resource containing pull secret credentials.
   //
-  // When set, the system resolves the referenced Secret to obtain the pull secret value. The referenced Secret must
-  // exist in the same tenant. If not provided, the provider's default pull secret is used.
+  // When set, the system resolves the referenced Secret to obtain the pull secret value. A directly referenced Secret
+  // must exist in the same tenant. When unset, a shared Secret may be inherited if the shared template provides it as
+  // the default pull secret.
   SecretLocalReference pull_secret_secret = 11;
 }
 
