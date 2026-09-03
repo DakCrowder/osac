@@ -1383,14 +1383,14 @@ func (t *Tool) registerHub(ctx context.Context) error {
 		return fmt.Errorf("failed to write hub Kc: %w", err)
 	}
 
-	// Store the kubeconfig in a tenant-scoped Secret. The hub server resolves Secret references
-	// with its admin-scoped DAO, so the credential can live in an existing synchronized test tenant.
+	// Hub credentials are platform-scoped, shared Secrets. They are never exposed to tenant users;
+	// the hub client provider resolves them with its internal shared visibility.
 	secretsClient := privatev1.NewSecretsClient(t.internalView.adminConn)
 	secretResponse, err := secretsClient.Create(ctx, privatev1.SecretsCreateRequest_builder{
 		Object: privatev1.Secret_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:   fmt.Sprintf("local-hub-kubeconfig-%s", uuid.New()[24:32]),
-				Tenant: usersGroup,
+				Tenant: auth.SharedTenant,
 			}.Build(),
 			Data: map[string][]byte{
 				"kubeconfig": hubKcBytes,

@@ -27,6 +27,7 @@ import (
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
+	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/osac/fulfillment-service/internal/vault"
@@ -74,14 +75,21 @@ func (l *hubLookupWithDAO) GetKubeconfig(ctx context.Context, hubID string) (kub
 }
 
 func (l *hubLookupWithDAO) getSecret(ctx context.Context, id string) (*privatev1.Secret, error) {
-	resp, err := l.secretsDAO.Get().SetId(id).Do(ctx)
+	// The caller is already authorized to retrieve the hub-backed Secret. Hub credentials are
+	// platform-scoped shared Secrets, so resolve this implementation detail using shared visibility
+	// rather than the caller's tenant visibility.
+	lookupCtx := auth.ContextWithSubject(ctx, &auth.Subject{
+		User:    auth.SystemTenant,
+		Tenants: auth.SharedTenants,
+	})
+	resp, err := l.secretsDAO.Get().SetId(id).Do(lookupCtx)
 	if err != nil {
 		return nil, err
 	}
 	secret := resp.GetObject()
 	if l.secretStore != nil && secret.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_VAULT {
 		metadata := secret.GetMetadata()
-		data, err := l.secretStore.Fetch(ctx, metadata.GetTenant(), metadata.GetProject(), metadata.GetName())
+		data, err := l.secretStore.Fetch(lookupCtx, metadata.GetTenant(), metadata.GetProject(), metadata.GetName())
 		if err != nil {
 			return nil, vault.ToGrpcError(err)
 		}
