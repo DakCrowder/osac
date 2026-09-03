@@ -613,8 +613,8 @@ EOF
 
 **Step 2: Register the Hub**
 ```bash
-# Store the kubeconfig in an OSAC Secret
-./osac create secret \
+# Store the kubeconfig in a platform-managed shared OSAC Secret
+./osac --tenant shared create secret \
   --name production-hub-kubeconfig \
   --from-file=kubeconfig=/tmp/hub-kubeconfig.yaml
 
@@ -679,12 +679,12 @@ EOF
 
 **Scenario: Multiple Environment Hubs**
 ```bash
-# Store each hub kubeconfig in its own OSAC Secret
-./osac create secret --name dev-hub-kubeconfig \
+# Store each hub kubeconfig in its own shared OSAC Secret
+./osac --tenant shared create secret --name dev-hub-kubeconfig \
   --from-file=kubeconfig=/tmp/dev-hub-kubeconfig.yaml
-./osac create secret --name staging-hub-kubeconfig \
+./osac --tenant shared create secret --name staging-hub-kubeconfig \
   --from-file=kubeconfig=/tmp/staging-hub-kubeconfig.yaml
-./osac create secret --name prod-hub-kubeconfig \
+./osac --tenant shared create secret --name prod-hub-kubeconfig \
   --from-file=kubeconfig=/tmp/prod-hub-kubeconfig.yaml
 
 # Development hub
@@ -1581,7 +1581,7 @@ oc exec deployment/fulfillment-service -n fulfillment-system -c server -- lsof -
 **Hub Management:**
 ```bash
 # Store the kubeconfig before creating the hub
-./osac create secret --name KUBECONFIG_SECRET \
+./osac --tenant shared create secret --name KUBECONFIG_SECRET \
   --from-file=kubeconfig=KUBECONFIG_FILE
 
 # Create hub

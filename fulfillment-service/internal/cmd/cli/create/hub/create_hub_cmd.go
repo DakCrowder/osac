@@ -135,7 +135,7 @@ Create a hub.
 Create a Secret containing the kubeconfig, then reference it when creating the hub:
 
 {{ bt 3 }}shell
-{{ binary }} create secret --name hub-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig
+{{ binary }} --tenant shared create secret --name hub-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig
 {{ binary }} create hub --id my-hub --kubeconfig hub-kubeconfig --namespace osac
 {{ bt 3 }}
 `
@@ -146,7 +146,8 @@ _ID_ - Unique identifier of the hub.
 
 const kubeconfigFlagHelp = `
 _NAME_ - Name of a Secret resource containing the kubeconfig in its
-{{ bt }}kubeconfig{{ bt }} data key. The secret must exist in the same tenant.
+{{ bt }}kubeconfig{{ bt }} data key. The Secret must belong to the
+{{ bt }}shared{{ bt }} tenant and can only be managed by a platform administrator.
 See also {{ bt }}osac create secret{{ bt }}.
 `
 

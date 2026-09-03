@@ -345,7 +345,7 @@ var _ = Describe("Private hubs server", func() {
 					Id: "tenant-secret-id",
 					Metadata: privatev1.Metadata_builder{
 						Name:   "tenant-secret-name",
-						Tenant: "tenant-a",
+						Tenant: testTenant,
 					}.Build(),
 				}.Build()).Do(ctx)
 				Expect(err).ToNot(HaveOccurred())

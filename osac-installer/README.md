@@ -290,8 +290,8 @@ for a hub.
 # Generate the kubeconfig
 $ ./scripts/create-hub-access-kubeconfig.sh
 
-# Store the kubeconfig in an OSAC Secret
-$ osac create secret \
+# Store the kubeconfig in a platform-managed shared OSAC Secret
+$ osac --tenant shared create secret \
     --name hub-kubeconfig \
     --from-file=kubeconfig=kubeconfig.hub-access
 
