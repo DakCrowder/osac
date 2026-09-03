@@ -29,6 +29,7 @@ import (
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
+	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 )
 
 //go:generate mockgen -destination=hub_lookup_mock.go -package=servers . HubLookup
@@ -37,15 +38,20 @@ import (
 // hubLookupWithDAO implements HubLookup using a DAO for secret resolution.
 // This avoids circular dependencies between HubClientProvider and SecretsServer.
 type hubLookupWithDAO struct {
-	hubServer  privatev1.HubsServer
-	secretsDAO *dao.GenericDAO[*privatev1.Secret]
+	hubServer   privatev1.HubsServer
+	secretsDAO  *dao.GenericDAO[*privatev1.Secret]
+	secretStore vault.SecretStore
 }
 
 // NewHubLookupWithDAO creates a HubLookup backed by the private Hubs server.
-func NewHubLookupWithDAO(hubServer privatev1.HubsServer, secretsDAO *dao.GenericDAO[*privatev1.Secret]) HubLookup {
+// The secret store is used to hydrate Vault-backed secret data, which isn't persisted in the
+// metadata DAO. This keeps the lookup independent of the Secrets server and avoids a dependency
+// cycle with the hub secret fetcher.
+func NewHubLookupWithDAO(hubServer privatev1.HubsServer, secretsDAO *dao.GenericDAO[*privatev1.Secret], secretStore vault.SecretStore) HubLookup {
 	return &hubLookupWithDAO{
-		hubServer:  hubServer,
-		secretsDAO: secretsDAO,
+		hubServer:   hubServer,
+		secretsDAO:  secretsDAO,
+		secretStore: secretStore,
 	}
 }
 
@@ -72,7 +78,16 @@ func (l *hubLookupWithDAO) getSecret(ctx context.Context, id string) (*privatev1
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetObject(), nil
+	secret := resp.GetObject()
+	if l.secretStore != nil && secret.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_VAULT {
+		metadata := secret.GetMetadata()
+		data, err := l.secretStore.Fetch(ctx, metadata.GetTenant(), metadata.GetProject(), metadata.GetName())
+		if err != nil {
+			return nil, vault.ToGrpcError(err)
+		}
+		secret.SetData(data)
+	}
+	return secret, nil
 }
 
 // HubClientInfo holds the cached Kubernetes client and associated hub metadata.
