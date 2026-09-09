@@ -322,19 +322,10 @@ func (s *PrivateStorageBackendsServer) validatePasswordSecret(ctx context.Contex
 	if ref.GetId() == "" && ref.GetName() == "" {
 		return grpcstatus.Errorf(grpccodes.InvalidArgument, "password_secret must specify id or name")
 	}
-	resolved, err := references.NewDAOLookupFunc(s.secretsDao)(ctx, "", "", ref.GetId(), ref.GetName())
+	resolved, err := resolveSecretReferenceOfType(ctx, s.logger, s.secretsDao, ref,
+		"password_secret", privatev1.SecretType_SECRET_TYPE_VALUE)
 	if err != nil {
-		var deniedErr *dao.ErrDenied
-		if errors.As(err, &deniedErr) {
-			return grpcstatus.Errorf(grpccodes.PermissionDenied, "%s", deniedErr.Reason)
-		}
-		var nf interface{ IsNotFound() bool }
-		if errors.As(err, &nf) && nf.IsNotFound() {
-			return grpcstatus.Errorf(grpccodes.InvalidArgument,
-				"there is no secret with identifier or name '%s'", refKey(ref))
-		}
-		s.logger.ErrorContext(ctx, "Failed to resolve password_secret reference", "error", err)
-		return grpcstatus.Errorf(grpccodes.Internal, "failed to resolve password_secret reference")
+		return err
 	}
 	resolvedRef := &privatev1.SecretLocalReference{}
 	resolvedRef.SetId(resolved.ID)
