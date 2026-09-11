@@ -73,6 +73,12 @@ func Cmd() *cobra.Command {
 		userDataFlagHelp,
 	)
 	flags.StringVar(
+		&runner.args.userDataSecret,
+		"user-data-secret",
+		"",
+		userDataSecretFlagHelp,
+	)
+	flags.StringVar(
 		&runner.args.runStrategy,
 		"run-strategy",
 		"",
@@ -100,6 +106,7 @@ func Cmd() *cobra.Command {
 	if err := result.MarkFlagRequired("catalog-item"); err != nil {
 		panic(fmt.Sprintf("failed to mark catalog-item flag as required: %v", err))
 	}
+	result.MarkFlagsMutuallyExclusive("user-data", "user-data-secret")
 	return result
 }
 
@@ -111,6 +118,7 @@ type runnerContext struct {
 		networkAttachments   []string
 		sshKey               string
 		userData             string
+		userDataSecret       string
 		runStrategy          string
 		externalIPAttachment bool
 	}
@@ -156,10 +164,7 @@ func (c *runnerContext) run(cmd *cobra.Command, _ []string) error {
 		sshKey := c.args.sshKey
 		spec.SshPublicKey = &sshKey
 	}
-	if c.args.userData != "" {
-		userData := c.args.userData
-		spec.UserData = &userData
-	}
+	c.applyUserDataFlags(&spec)
 	if c.args.runStrategy != "" {
 		rs, err := fieldutil.ParseEnum(c.args.runStrategy, runStrategyMap, "run-strategy")
 		if err != nil {
@@ -223,6 +228,13 @@ _DATA_ - User data passed to the OS at first boot (e.g. cloud-init).
 Maximum 64 KB. Immutable after creation.
 `
 
+const userDataSecretFlagHelp = `
+_NAME_ - Name of a Secret resource containing user data passed to the OS at
+first boot. The secret must exist in the same tenant. See also
+{{ bt }}osac create secret{{ bt }}. Mutually exclusive with
+{{ bt }}--user-data{{ bt }}.
+`
+
 const runStrategyFlagHelp = `
 _STRATEGY_ - Run strategy controlling the power state. Valid values are
 {{ bt }}Always{{ bt }} (keep powered on) and {{ bt }}Halted{{ bt }}
@@ -266,6 +278,15 @@ func (c *runnerContext) applyNetworkingFlags(spec *publicv1.BareMetalInstanceSpe
 	}
 	spec.NetworkAttachments = attachments
 	return nil
+}
+
+func (c *runnerContext) applyUserDataFlags(spec *publicv1.BareMetalInstanceSpec_builder) {
+	if c.args.userData != "" {
+		spec.UserData = proto.String(c.args.userData)
+	}
+	if c.args.userDataSecret != "" {
+		spec.UserDataSecret = publicv1.SecretLocalReference_builder{Name: c.args.userDataSecret}.Build()
+	}
 }
 
 func parseBareMetalNetworkAttachmentFlag(s string) (*publicv1.BareMetalNetworkAttachment, error) {
