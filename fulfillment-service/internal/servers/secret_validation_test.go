@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
+	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
 
 func TestValidateSecretData(t *testing.T) {
