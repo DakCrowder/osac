@@ -353,12 +353,10 @@ class TestComputeReferences:
             assert secret_ref.get("id") == secret_id
         finally:
             if ci_id:
-                grpc.delete_compute_instance(ci_id=ci_id)
                 try:
-                    cr_name = wait_for_cr(k8s=k8s_hub_client, uuid=ci_id)
-                    wait_for_deletion(k8s=k8s_hub_client, name=cr_name)
-                except (subprocess.CalledProcessError, AssertionError, TimeoutError):
-                    logger.warning("Cleanup wait failed for compute instance %s", ci_id)
+                    grpc.delete_compute_instance(ci_id=ci_id)
+                except subprocess.CalledProcessError:
+                    logger.warning("Failed to cleanup compute instance %s", ci_id)
             try:
                 grpc.call(service=f"{PUBLIC_API}.Secrets/Delete", data={"id": secret_id})
             except subprocess.CalledProcessError:
