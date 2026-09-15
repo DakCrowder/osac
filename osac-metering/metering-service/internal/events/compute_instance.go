@@ -140,8 +140,8 @@ func (m *computeInstanceMapper) IsBillable() bool {
 	return false
 }
 
-func (m *computeInstanceMapper) BillingDimensionsMap() map[string]any {
-	return ComputeInstanceBillingDimensions(m.ci)
+func (m *computeInstanceMapper) BillingDimensionsMap() (map[string]any, error) {
+	return ComputeInstanceBillingDimensions(m.ci), nil
 }
 
 func ComputeInstanceBillingDimensions(ci *privatev1.ComputeInstance) map[string]any {
@@ -221,7 +221,7 @@ func (m *computeInstanceMapper) CloudEventType(eventType privatev1.EventType, pr
 	return ResolveCloudEventType(computeInstanceTransitions, eventType, previousState, m.CurrentState())
 }
 
-func (m *computeInstanceMapper) TransitionTime(event *privatev1.Event) (time.Time, error) {
+func (m *computeInstanceMapper) TransitionTime(event *privatev1.Event, _ string) (time.Time, error) {
 	return ResolveTransitionTime(event.GetType(),
 		event.GetTimestamp(),
 		m.ci.GetMetadata().GetCreationTimestamp(),

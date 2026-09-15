@@ -1,0 +1,13 @@
+{{- if .Values.metering.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "osac.osacDeploymentIdentityName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osac.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+data:
+  osacDeploymentId: {{ include "osac.osacDeploymentId" . | quote }}
+{{- end }}

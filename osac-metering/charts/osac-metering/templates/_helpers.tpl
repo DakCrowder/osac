@@ -15,6 +15,10 @@
 {{- end }}
 {{- end -}}
 
+{{- define "osac-metering.osacDeploymentId" -}}
+{{- .Values.global.osacDeploymentId -}}
+{{- end -}}
+
 {{- define "osac-metering.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/name: {{ include "osac-metering.name" . }}

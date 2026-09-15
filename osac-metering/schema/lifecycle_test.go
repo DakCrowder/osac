@@ -58,4 +58,9 @@ var _ = Describe("Lifecycle", func() {
 			Expect(schema.SchemaVersion).NotTo(BeEmpty())
 		})
 	})
+
+	It("defines the billable networking resource types", func() {
+		Expect(schema.ResourceTypeExternalIP).To(Equal("external_ip"))
+		Expect(schema.ResourceTypeNATGateway).To(Equal("nat_gateway"))
+	})
 })

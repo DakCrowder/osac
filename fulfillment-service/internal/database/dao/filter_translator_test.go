@@ -336,6 +336,11 @@ var _ = Describe("Filter translator", func() {
 				`data->'my_string_list' @> jsonb_build_array(data->>'my_string')`,
 			),
 			Entry(
+				"Size of repeated string field",
+				`this.my_string_list.size() == 0`,
+				`coalesce(jsonb_array_length(data->'my_string_list'), 0) = 0`,
+			),
+			Entry(
 				"Double-quoted string with single quote from %q",
 				`this.id == "it's"`,
 				`id = e'it\'s'`,

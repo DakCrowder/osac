@@ -93,8 +93,8 @@ func (m *clusterMapper) IsBillable() bool {
 	return IsClusterBillableState(m.CurrentState())
 }
 
-func (m *clusterMapper) BillingDimensionsMap() map[string]any {
-	return ClusterBillingDimensions(m.cl)
+func (m *clusterMapper) BillingDimensionsMap() (map[string]any, error) {
+	return ClusterBillingDimensions(m.cl), nil
 }
 
 // CaaS cluster state machine. Both PROGRESSING and READY are billable.
@@ -163,7 +163,7 @@ func (m *clusterMapper) CloudEventType(eventType privatev1.EventType, previousSt
 	return ResolveCloudEventType(clusterTransitions, eventType, previousState, m.CurrentState())
 }
 
-func (m *clusterMapper) TransitionTime(event *privatev1.Event) (time.Time, error) {
+func (m *clusterMapper) TransitionTime(event *privatev1.Event, _ string) (time.Time, error) {
 	return ResolveTransitionTime(event.GetType(),
 		event.GetTimestamp(),
 		m.cl.GetMetadata().GetCreationTimestamp(),

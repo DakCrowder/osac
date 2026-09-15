@@ -37,6 +37,9 @@ type Config struct {
 	// client secrets and user passwords. If the environment variable is set then that value will be used, otherwise
 	// a random one will be generated.
 	Secret string `json:"secret" envconfig:"secret" default:""`
+
+	// TestSuite selects the scenario exercised by a focused integration test run.
+	TestSuite string `json:"test_suite" envconfig:"test_suite" default:""`
 }
 
 var (

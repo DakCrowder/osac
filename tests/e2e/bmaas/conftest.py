@@ -66,7 +66,7 @@ def catalog_item(
         template=bmi_template,
         field_definitions=[
             {"path": "ssh_public_key", "display_name": "SSH Public Key", "editable": True},
-            {"path": "disk_image", "display_name": "Disk Image", "editable": False, "default": bmi_disk_image},
+            {"path": "disk_image", "display_name": "Disk Image", "editable": True},
         ],
     )
     print(f"CatalogItem created: {item_id}")

@@ -222,6 +222,14 @@ func TestTransientCheckersCoversAllBillabilityCheckerKeys(t *testing.T) {
 	}
 }
 
+func TestCorrectionResourceTypesIncludesNetworking(t *testing.T) {
+	for _, resourceType := range []string{events.ResourceTypeExternalIP, events.ResourceTypeNATGateway} {
+		if _, ok := correctionResourceTypes[resourceType]; !ok {
+			t.Errorf("corrections do not support networking resource type %q", resourceType)
+		}
+	}
+}
+
 func TestBuildSyntheticHeartbeatsFallsBackToBillableSinceWhenNeverHeartbeated(t *testing.T) {
 	billableSince := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	ps := projection.ResourceState{

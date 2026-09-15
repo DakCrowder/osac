@@ -169,6 +169,7 @@ class TestBmaasNetworking:
         k8s_hub_client: K8sClient,
         catalog_item_name: str,
         auto_eip_catalog_item_name: str,
+        bmi_disk_image: str,
         net_ssh_public_key: str,
         bmh_namespace: str,
         net_test_run_id: str,
@@ -189,6 +190,7 @@ class TestBmaasNetworking:
                 name=bmi_name,
                 catalog_item=catalog,
                 ssh_key=net_ssh_public_key,
+                disk_image=bmi_disk_image,
                 network_attachments=[f"subnet={subnet_id},interface=eth9,primary,security-groups={sg}"],
                 external_ip_attachment=is_auto_eip,
             )

@@ -11,6 +11,10 @@
         "clusterDomain": {
           "type": "string",
           "description": "OpenShift cluster ingress domain (e.g. apps.mycluster.example.com). Backs the tpl-templated defaults for service.auth.issuerUrl, service.idp.url, and service.vault.keycloakIssuerUrl. Set via --set global.clusterDomain=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'). Leave empty on platforms (e.g. kind) that set those three values explicitly instead."
+        },
+        "osacDeploymentId": {
+          "type": "string",
+          "description": "Required stable identity for this OSAC/fulfillment-service deployment"
         }
       }
     },
@@ -104,6 +108,10 @@
               }
             }
           }
+        },
+        "osacDeploymentId": {
+          "type": "string",
+          "description": "Required stable identity for this OSAC/fulfillment-service deployment"
         }
       }
     },

@@ -17,12 +17,14 @@ from tests.e2e.core.helpers import (
     wait_for_external_ip_pool_deletion,
 )
 from tests.e2e.core.k8s_client import K8sClient
+from tests.e2e.core.metering import MeteringCollector
 from tests.e2e.core.runner import poll_until
 
 pytestmark = pytest.mark.regression
 
 
 class TestExternalIPPoolLifecycle:
+    @pytest.mark.metering
     def test_attach_detach_reattach(
         self,
         external_ip_pool: tuple[str, str],
@@ -31,6 +33,7 @@ class TestExternalIPPoolLifecycle:
         grpc: GRPCClient,
         private_grpc: GRPCClient,
         k8s_hub_client: K8sClient,
+        metering: MeteringCollector,
     ) -> None:
         pool_id, pool_cr_name = external_ip_pool
         ip_id, ip_cr_name = external_ip
@@ -39,6 +42,12 @@ class TestExternalIPPoolLifecycle:
         assert pool_id in private_grpc.list_external_ip_pool_ids()
         assert ip_id in grpc.list_external_ip_ids()
         wait_for_external_ip_allocated(k8s=k8s_hub_client, name=ip_cr_name)
+        metering.expect("osac.resource.started.v1", resource_id=ip_id)
+        metering.verify()
+        started = metering.get_event("osac.resource.started.v1", resource_id=ip_id)
+        assert started["data"]["billing_dimensions"]["pool"] == pool_id
+        assert started["data"]["billing_dimensions"]["ip_family"] == "ipv4"
+        assert started["data"]["billing_dimensions"]["attached"] is False
 
         # --- Attach ExternalIP to ComputeInstance 1 ---
         att_id: str = grpc.create_external_ip_attachment(
@@ -63,6 +72,12 @@ class TestExternalIPPoolLifecycle:
         assert attached_ip_address, "ExternalIP should have an allocated address"
         assert private_ip_obj["status"]["attribution"]["computeInstance"]["id"] == ci1_uuid
         assert private_ip_obj["status"].get("attachmentTransitionTime")
+        metering.expect("osac.resource.updated.v1", resource_id=ip_id)
+        metering.verify()
+        # The update closes the old unattached slice; the settled attached
+        # dimensions apply to the next heartbeat and slice.
+        attached_event = metering.get_event("osac.resource.updated.v1", resource_id=ip_id)
+        assert attached_event["data"]["billing_dimensions"]["attached"] is False
 
         # --- Detach (delete attachment) ---
         grpc.delete_external_ip_attachment(attachment_id=att_id)
@@ -75,6 +90,12 @@ class TestExternalIPPoolLifecycle:
             delay=5,
             description=f"ExternalIP {ip_id} detached",
         )
+        metering.expect("osac.resource.updated.v1", resource_id=ip_id)
+        metering.verify()
+        detached_event = metering.get_event("osac.resource.updated.v1", resource_id=ip_id)
+        detached_dimensions = detached_event["data"]["billing_dimensions"]
+        assert detached_dimensions["attached"] is True
+        assert detached_dimensions["attribution_id"] == ci1_uuid
 
         # --- Re-attach same IP to ComputeInstance 2 ---
         att2_id: str = grpc.create_external_ip_attachment(
@@ -93,6 +114,10 @@ class TestExternalIPPoolLifecycle:
             description="reattached ExternalIP attribution settlement",
         )
         assert second_private_ip["status"]["attribution"]["computeInstance"]["id"] == ci2_uuid
+        metering.expect("osac.resource.updated.v1", resource_id=ip_id)
+        metering.verify()
+        reattached_event = metering.get_event("osac.resource.updated.v1", resource_id=ip_id)
+        assert reattached_event["data"]["billing_dimensions"]["attached"] is False
 
         ip_obj = grpc.get_external_ip(external_ip_id=ip_id)
         assert ip_obj["object"]["status"]["address"] == attached_ip_address, (
@@ -103,7 +128,9 @@ class TestExternalIPPoolLifecycle:
         grpc.delete_external_ip_attachment(attachment_id=att2_id)
         wait_for_external_ip_attachment_deletion(k8s=k8s_hub_client, name=att2_cr_name)
 
+        metering.expect("osac.resource.suspended.v1", resource_id=ip_id)
         grpc.delete_external_ip(external_ip_id=ip_id)
+        metering.verify()
         wait_for_external_ip_deletion(k8s=k8s_hub_client, name=ip_cr_name)
         poll_until(
             fn=lambda: ip_id not in grpc.list_external_ip_ids(),

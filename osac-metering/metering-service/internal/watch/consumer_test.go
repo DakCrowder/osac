@@ -225,6 +225,84 @@ var _ = Describe("Consumer", func() {
 	}
 
 	Describe("Run", func() {
+		It("meters a NATGateway lifecycle without a network provider", func() {
+			creationTime := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+			readyTime := creationTime.Add(time.Minute)
+			deletionTime := creationTime.Add(2 * time.Hour)
+			finalDeleteTime := deletionTime.Add(time.Minute)
+			gateway := func(version int32, state privatev1.NATGatewayState, stateTime, deletedAt *timestamppb.Timestamp) *privatev1.NATGateway {
+				metadata := &privatev1.Metadata{
+					Tenant:            "tenant-1",
+					Project:           "project-1",
+					Version:           version,
+					CreationTimestamp: timestamppb.New(creationTime),
+					DeletionTimestamp: deletedAt,
+				}
+				return &privatev1.NATGateway{
+					Id:       "nat-1",
+					Metadata: metadata,
+					Spec: &privatev1.NATGatewaySpec{
+						VirtualNetwork: &privatev1.VirtualNetworkLocalReference{Id: "vnet-1"},
+						ExternalIp:     &privatev1.ExternalIPLocalReference{Id: "ip-1"},
+					},
+					Status: &privatev1.NATGatewayStatus{
+						State:               state,
+						StateTransitionTime: stateTime,
+					},
+				}
+			}
+			pending := gateway(1, privatev1.NATGatewayState_NAT_GATEWAY_STATE_PENDING, timestamppb.New(creationTime), nil)
+			ready := gateway(2, privatev1.NATGatewayState_NAT_GATEWAY_STATE_READY, timestamppb.New(readyTime), nil)
+			deleting := gateway(3, privatev1.NATGatewayState_NAT_GATEWAY_STATE_READY, timestamppb.New(readyTime), timestamppb.New(deletionTime))
+			deleted := gateway(4, privatev1.NATGatewayState_NAT_GATEWAY_STATE_READY, timestamppb.New(readyTime), timestamppb.New(deletionTime))
+
+			client.results = []mockStreamResult{{stream: &mockWatchStream{
+				responses: []*privatev1.EventsWatchResponse{
+					makeResponse(&privatev1.Event{
+						Id:        "nat-created",
+						Type:      privatev1.EventType_EVENT_TYPE_OBJECT_CREATED,
+						Timestamp: timestamppb.New(creationTime),
+						Payload:   &privatev1.Event_NatGateway{NatGateway: pending},
+					}),
+					makeResponse(&privatev1.Event{
+						Id:        "nat-ready",
+						Type:      privatev1.EventType_EVENT_TYPE_OBJECT_UPDATED,
+						Timestamp: timestamppb.New(readyTime),
+						Payload:   &privatev1.Event_NatGateway{NatGateway: ready},
+					}),
+					makeResponse(&privatev1.Event{
+						Id:        "nat-deleting",
+						Type:      privatev1.EventType_EVENT_TYPE_OBJECT_UPDATED,
+						Timestamp: timestamppb.New(deletionTime),
+						Payload:   &privatev1.Event_NatGateway{NatGateway: deleting},
+					}),
+					makeResponse(&privatev1.Event{
+						Id:        "nat-deleted",
+						Type:      privatev1.EventType_EVENT_TYPE_OBJECT_DELETED,
+						Timestamp: timestamppb.New(finalDeleteTime),
+						Payload:   &privatev1.Event_NatGateway{NatGateway: deleted},
+					}),
+				},
+			}}}
+
+			pub := &mockPublisher{published: make([]cloudevents.Event, 0, 4), cancelFunc: cancel}
+			consumer := newConsumer(pub)
+			consumer.DeploymentID = "deployment-1"
+
+			Expect(consumer.Run(ctx)).To(Succeed())
+
+			pub.mu.Lock()
+			defer pub.mu.Unlock()
+			Expect(pub.published).To(HaveLen(4))
+			Expect(pub.published[0].Type()).To(Equal(events.EventCreated))
+			Expect(pub.published[1].Type()).To(Equal(events.EventStarted))
+			Expect(pub.published[1].Time()).To(Equal(readyTime))
+			Expect(pub.published[2].Type()).To(Equal(events.EventSuspended))
+			Expect(pub.published[2].Time()).To(Equal(deletionTime))
+			Expect(pub.published[3].Type()).To(Equal(events.EventDeleted))
+			Expect(pub.published[3].Time()).To(Equal(finalDeleteTime))
+		})
+
 		It("maps and publishes events", func() {
 			stream := &mockWatchStream{
 				responses: []*privatev1.EventsWatchResponse{
@@ -396,7 +474,7 @@ var _ = Describe("Consumer", func() {
 			client.mu.Lock()
 			defer client.mu.Unlock()
 			Expect(client.calls).ToNot(BeEmpty())
-			Expect(client.calls[0].GetFilter()).To(Equal("has(event.compute_instance) || has(event.cluster)"))
+			Expect(client.calls[0].GetFilter()).To(Equal("has(event.compute_instance) || has(event.cluster) || has(event.external_ip) || has(event.nat_gateway)"))
 		})
 
 		It("fails fast on unknown payload type and reconnects", func() {

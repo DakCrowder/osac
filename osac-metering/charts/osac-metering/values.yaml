@@ -3,6 +3,11 @@ image:
   tag: latest  # PLACEHOLDER -- overwritten at release time by publish-charts.yaml
   pullPolicy: Always
 
+# Global values are supplied by the umbrella chart. The service validates the
+# identity at startup when this chart is installed standalone.
+global:
+  osacDeploymentId: ""
+
 # Fulfillment address is auto-derived from release namespace.
 # Override fulfillment.address for cross-namespace/cross-cluster (OSAC-3537).
 

@@ -134,6 +134,9 @@ func (g *Generator) publishResourceHeartbeats(ctx context.Context, hbEvents []cl
 }
 
 func (g *Generator) buildHeartbeatEvents(state *projection.ResourceState, now time.Time) ([]cloudevents.Event, error) {
+	if err := events.ValidateBillingDimensions(state.ResourceType, state.BillingDimensions); err != nil {
+		return nil, err
+	}
 	buildFn := func(dims map[string]any, eventID string) (cloudevents.Event, error) {
 		return g.buildHeartbeatEvent(state, eventID, dims, now)
 	}
@@ -143,6 +146,13 @@ func (g *Generator) buildHeartbeatEvents(state *projection.ResourceState, now ti
 	// e.g. a future in-tick retry — reproduces the same per-component
 	// CloudEvent IDs.
 	baseID := fmt.Sprintf("hb/%s/%d", state.ResourceID, now.Truncate(g.interval).Unix())
+	if events.IsNetworkingResourceType(state.ResourceType) {
+		identity, err := events.HeartbeatIdentity(state.ResourceType, state.BillingDimensions, state.BillableSince)
+		if err != nil {
+			return nil, err
+		}
+		baseID = fmt.Sprintf("%s/%s", baseID, identity)
+	}
 	return events.BuildResourceEvents(state.ResourceType, state.BillingDimensions, baseID, buildFn)
 }
 

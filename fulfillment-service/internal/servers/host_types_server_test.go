@@ -19,9 +19,12 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
+	"github.com/osac-project/osac/fulfillment-service/internal/services"
 	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
 
@@ -68,17 +71,19 @@ var _ = Describe("Host types server", func() {
 
 	Describe("Behaviour", func() {
 		var server *HostTypesServer
-
-		BeforeEach(func() {
-			var err error
-
-			// Create the server:
-			server, err = NewHostTypesServer().
+		newServer := func(flags *services.Flags) *HostTypesServer {
+			result, err := NewHostTypesServer().
 				SetLogger(logger).
 				SetAttributionLogic(attribution).
 				SetTenancyLogic(tenancy).
+				SetServiceFlags(flags).
 				Build()
 			Expect(err).ToNot(HaveOccurred())
+			return result
+		}
+
+		BeforeEach(func() {
+			server = newServer(nil)
 		})
 
 		It("Creates object", func() {
@@ -284,6 +289,116 @@ var _ = Describe("Host types server", func() {
 				Expect(response.GetSize()).To(BeNumerically("==", 1))
 				Expect(response.GetItems()[0].GetId()).To(Equal(object.GetId()))
 			}
+		})
+
+		DescribeTable("filters host types by enabled compute services", func(flags *services.Flags, expectedIDs func(bareMetalID, virtualID string) []string) {
+			testServer := newServer(flags)
+			bareMetalResponse, err := testServer.Create(ctx, publicv1.HostTypesCreateRequest_builder{
+				Object: publicv1.HostType_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-bm-%s", uuid.NewString()[:8]),
+					}.Build(),
+					Title: "BM host type",
+					Interfaces: []*publicv1.NetworkInterface{
+						publicv1.NetworkInterface_builder{Name: "data-0"}.Build(),
+					},
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			virtualResponse, err := testServer.Create(ctx, publicv1.HostTypesCreateRequest_builder{
+				Object: publicv1.HostType_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-vm-%s", uuid.NewString()[:8]),
+					}.Build(),
+					Title: "VM host type",
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			response, err := testServer.List(ctx, publicv1.HostTypesListRequest_builder{}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			actualIDs := make([]string, 0, len(response.GetItems()))
+			for _, item := range response.GetItems() {
+				actualIDs = append(actualIDs, item.GetId())
+			}
+			Expect(actualIDs).To(ConsistOf(expectedIDs(
+				bareMetalResponse.GetObject().GetId(),
+				virtualResponse.GetObject().GetId(),
+			)))
+		},
+			Entry("no service flags preserves all host types", nil, func(bareMetalID, virtualID string) []string {
+				return []string{bareMetalID, virtualID}
+			}),
+			Entry("both compute services enabled preserves all host types", &services.Flags{CaaS: true, VMaaS: true, BMaaS: true}, func(bareMetalID, virtualID string) []string {
+				return []string{bareMetalID, virtualID}
+			}),
+			Entry("BMaaS disabled returns virtual host types", &services.Flags{CaaS: true, VMaaS: true}, func(_, virtualID string) []string {
+				return []string{virtualID}
+			}),
+			Entry("VMaaS disabled returns bare-metal host types", &services.Flags{CaaS: true, BMaaS: true}, func(bareMetalID, _ string) []string {
+				return []string{bareMetalID}
+			}),
+			Entry("both compute services disabled returns no host types", &services.Flags{}, func(_, _ string) []string {
+				return []string{}
+			}),
+		)
+
+		It("applies service filtering in addition to the client filter", func() {
+			testServer := newServer(&services.Flags{CaaS: true, VMaaS: true})
+			bareMetalResponse, err := testServer.Create(ctx, publicv1.HostTypesCreateRequest_builder{
+				Object: publicv1.HostType_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-bm-filter-%s", uuid.NewString()[:8]),
+					}.Build(),
+					Interfaces: []*publicv1.NetworkInterface{
+						publicv1.NetworkInterface_builder{Name: "data-0"}.Build(),
+					},
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			response, err := testServer.List(ctx, publicv1.HostTypesListRequest_builder{
+				Filter: new(fmt.Sprintf("this.id == '%s'", bareMetalResponse.GetObject().GetId())),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetItems()).To(BeEmpty())
+		})
+
+		It("returns NotFound for a host type belonging to a disabled service", func() {
+			seedServer := newServer(&services.Flags{CaaS: true, VMaaS: true, BMaaS: true})
+			bareMetalResponse, err := seedServer.Create(ctx, publicv1.HostTypesCreateRequest_builder{
+				Object: publicv1.HostType_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-bm-get-%s", uuid.NewString()[:8]),
+					}.Build(),
+					Interfaces: []*publicv1.NetworkInterface{
+						publicv1.NetworkInterface_builder{Name: "data-0"}.Build(),
+					},
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			virtualResponse, err := seedServer.Create(ctx, publicv1.HostTypesCreateRequest_builder{
+				Object: publicv1.HostType_builder{
+					Metadata: publicv1.Metadata_builder{
+						Name: fmt.Sprintf("test-vm-get-%s", uuid.NewString()[:8]),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			testServer := newServer(&services.Flags{CaaS: true, VMaaS: true, BMaaS: false})
+			_, err = testServer.Get(ctx, publicv1.HostTypesGetRequest_builder{
+				Id: bareMetalResponse.GetObject().GetId(),
+			}.Build())
+			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.NotFound))
+
+			response, err := testServer.Get(ctx, publicv1.HostTypesGetRequest_builder{
+				Id: virtualResponse.GetObject().GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetObject().GetId()).To(Equal(virtualResponse.GetObject().GetId()))
 		})
 
 		It("Get object", func() {

@@ -53,6 +53,7 @@ func BuildFilter(vmaas, caas bool) string {
 	if caas {
 		parts = append(parts, "has(event.cluster)")
 	}
+	parts = append(parts, "has(event.external_ip)", "has(event.nat_gateway)")
 	return strings.Join(parts, " || ")
 }
 
@@ -60,10 +61,13 @@ func BuildFilter(vmaas, caas bool) string {
 // incoming events to CloudEvents, and publishes them to Kafka. It
 // automatically reconnects with exponential backoff when the stream breaks.
 type Consumer struct {
-	client    privatev1.EventsClient
-	publisher kafkapub.EventPublisher
-	store     projection.Store
-	logger    logr.Logger
+	client               privatev1.EventsClient
+	ExternalIPPoolClient privatev1.ExternalIPPoolsClient
+	publisher            kafkapub.EventPublisher
+	store                projection.Store
+	logger               logr.Logger
+	DeploymentID         string
+	ExternalIPPools      map[string]string
 
 	InitialDelay   time.Duration
 	MaxDelay       time.Duration
@@ -141,7 +145,11 @@ func (c *Consumer) consumeStream(ctx context.Context) (int, error) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event *privatev1.Event) error {
-	mapper, err := events.MapperForEvent(event)
+	mapperContext, err := c.mapperContext(ctx, event)
+	if err != nil {
+		return err
+	}
+	mapper, err := events.MapperForEventWithContext(event, mapperContext)
 	if err != nil {
 		return fmt.Errorf("unexpected event payload for %s: %w", event.GetId(), err)
 	}
@@ -150,14 +158,21 @@ func (c *Consumer) handleEvent(ctx context.Context, event *privatev1.Event) erro
 	currentState := mapper.CurrentState()
 	isBillable := mapper.IsBillable()
 	version := mapper.FulfillmentVersion()
-	dims := mapper.BillingDimensionsMap()
+	dims, err := mapper.BillingDimensionsMap()
+	if err != nil {
+		return fmt.Errorf("building billing dimensions for %s: %w", resourceID, err)
+	}
 
 	existing, err := c.store.Get(ctx, resourceID)
 	if err != nil {
 		return fmt.Errorf("reading projection for %s: %w", resourceID, err)
 	}
 
-	transitionTime, err := mapper.TransitionTime(event)
+	previousState := ""
+	if existing != nil {
+		previousState = existing.CurrentState
+	}
+	transitionTime, err := mapper.TransitionTime(event, previousState)
 	if err != nil {
 		if errors.Is(err, events.ErrUnsupportedEvent) {
 			eventsSkipped.WithLabelValues("unsupported_event_type").Inc()
@@ -227,7 +242,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event *privatev1.Event) erro
 				"projection_version", latest.FulfillmentVersion)
 			return nil
 		}
-		if err := c.publishLifecycleEvents(ctx, ce, mapper, event.GetId()); err != nil {
+		if err := c.publishLifecycleEvents(ctx, ce, mapper, event.GetId(), dims); err != nil {
 			return err
 		}
 		if existing != nil {
@@ -239,8 +254,47 @@ func (c *Consumer) handleEvent(ctx context.Context, event *privatev1.Event) erro
 	}
 
 	return c.publishAndUpsert(ctx, func() error {
-		return c.publishLifecycleEvents(ctx, ce, mapper, event.GetId())
+		return c.publishLifecycleEvents(ctx, ce, mapper, event.GetId(), dims)
 	}, projState, resourceID)
+}
+
+func (c *Consumer) mapperContext(ctx context.Context, event *privatev1.Event) (events.MapperContext, error) {
+	context := events.MapperContext{
+		DeploymentID:    c.DeploymentID,
+		ExternalIPPools: c.ExternalIPPools,
+	}
+	ip := event.GetExternalIp()
+	if ip == nil {
+		gateway := event.GetNatGateway()
+		if gateway == nil {
+			return context, nil
+		}
+		return context, nil
+	}
+	poolID := ip.GetSpec().GetPool().GetId()
+	if _, ok := context.ExternalIPPools[poolID]; ok {
+		return context, nil
+	}
+	if c.ExternalIPPoolClient == nil {
+		return context, fmt.Errorf("external IP pool client is required for pool %s", poolID)
+	}
+	response, err := c.ExternalIPPoolClient.Get(ctx, &privatev1.ExternalIPPoolsGetRequest{Id: poolID})
+	if err != nil {
+		return context, fmt.Errorf("getting external IP pool %s: %w", poolID, err)
+	}
+	if response.GetObject().GetId() != poolID {
+		return context, fmt.Errorf("external IP pool lookup returned %s for requested pool %s", response.GetObject().GetId(), poolID)
+	}
+	family, err := events.ExternalIPPoolFamily(response.GetObject())
+	if err != nil {
+		return context, err
+	}
+	if c.ExternalIPPools == nil {
+		c.ExternalIPPools = make(map[string]string)
+	}
+	c.ExternalIPPools[poolID] = family
+	context.ExternalIPPools = c.ExternalIPPools
+	return context, nil
 }
 
 // publishAndUpsert publishes events first, then commits projection state.
@@ -327,12 +381,12 @@ func (c *Consumer) handleTransientState(
 // DimComponents is the billing dimensions key for the nested components array.
 const DimComponents = "components"
 
-func (c *Consumer) publishLifecycleEvents(ctx context.Context, baseCE *cloudevents.Event, mapper events.ResourceMapper, eventID string) error {
+func (c *Consumer) publishLifecycleEvents(ctx context.Context, baseCE *cloudevents.Event, mapper events.ResourceMapper, eventID string, billingDims map[string]any) error {
 	if baseCE.Type() == events.EventCreated || baseCE.Type() == events.EventDeleted {
 		return c.publishWithRetry(ctx, baseCE)
 	}
 
-	decomposed, err := events.BuildResourceEvents(mapper.ResourceType(), mapper.BillingDimensionsMap(), eventID, func(dims map[string]any, compEventID string) (cloudevents.Event, error) {
+	decomposed, err := events.BuildResourceEvents(mapper.ResourceType(), billingDims, eventID, func(dims map[string]any, compEventID string) (cloudevents.Event, error) {
 		return c.buildComponentEvent(baseCE, compEventID, dims)
 	})
 	if err != nil {
@@ -383,8 +437,13 @@ func (c *Consumer) handleScalingEvent(ctx context.Context, event *privatev1.Even
 				"resource_id", resourceID, "changed_components", len(changed))
 			return nil
 		}
-		// VMaaS: single updated.v1
-		ce, ceErr := c.buildScalingEvent(event.GetId(), mapper, dims, stateCtx, transitionTime)
+		// VMaaS and networking use a single updated.v1. An ExternalIP
+		// dimension change closes the prior slice with its prior dimensions.
+		scalingDims := dims
+		if mapper.ResourceType() == events.ResourceTypeExternalIP {
+			scalingDims = existing.BillingDimensions
+		}
+		ce, ceErr := c.buildScalingEvent(event.GetId(), mapper, scalingDims, stateCtx, transitionTime)
 		if ceErr != nil {
 			return ceErr
 		}

@@ -108,10 +108,15 @@ func (c *Container) Start(ctx context.Context) error {
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		containerUser, c.userPassword, c.host, c.port, templateDB,
 	)
-	tool := NewTool(c.logger, templateURL)
-	if err := tool.Migrate(ctx); err != nil {
-		return fmt.Errorf("migrating template database: %w", err)
+	templatePool, err := pgxpool.New(ctx, templateURL)
+	if err != nil {
+		return fmt.Errorf("creating template database pool: %w", err)
 	}
+	if err := InitializeSchema(ctx, templatePool); err != nil {
+		templatePool.Close()
+		return fmt.Errorf("initializing template database schema: %w", err)
+	}
+	templatePool.Close()
 
 	_, err = c.adminConn.Exec(ctx,
 		fmt.Sprintf("ALTER DATABASE %s IS_TEMPLATE true", templateDB))

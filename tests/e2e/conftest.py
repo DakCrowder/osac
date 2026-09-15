@@ -406,8 +406,8 @@ def jwt_grpc_tenant2(fulfillment_address: str, keycloak_url: str, jwt_password: 
 # --- Cross-cutting concern: Metering ---
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    metering_tests = [item for item in items if item.get_closest_marker("metering")]
+def pytest_collection_finish(session: pytest.Session) -> None:
+    metering_tests = [item for item in session.items if item.get_closest_marker("metering")]
     if metering_tests and not os.environ.get("METERING_ADAPTER_URL"):
         pytest.fail(
             f"METERING_ADAPTER_URL is not set but {len(metering_tests)} test(s) require metering. "

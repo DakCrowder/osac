@@ -25,8 +25,8 @@ type ResourceMapper interface {
 	CurrentState() string
 	FulfillmentVersion() int32
 	IsBillable() bool
-	BillingDimensionsMap() map[string]any
-	TransitionTime(event *privatev1.Event) (time.Time, error)
+	BillingDimensionsMap() (map[string]any, error)
+	TransitionTime(event *privatev1.Event, previousState string) (time.Time, error)
 	CloudEventType(eventType privatev1.EventType, previousState string) (string, error)
 }
 
@@ -73,8 +73,11 @@ func MapWatchEvent(event *privatev1.Event, mapper ResourceMapper, stateCtx *Stat
 	if mapper.TenantID() == "" {
 		return nil, fmt.Errorf("%w: resource %s has no tenant_id", ErrDataQuality, mapper.ResourceID())
 	}
+	if err := ValidateBillingDimensions(mapper.ResourceType(), billingDims); err != nil {
+		return nil, err
+	}
 
-	transitionTime, err := mapper.TransitionTime(event)
+	transitionTime, err := mapper.TransitionTime(event, previousState)
 	if err != nil {
 		return nil, err
 	}
@@ -102,17 +105,29 @@ func MapWatchEvent(event *privatev1.Event, mapper ResourceMapper, stateCtx *Stat
 // MapperForEvent returns the ResourceMapper for the event's payload type.
 // Exported for use by the Watch Consumer to inspect resource state before mapping.
 func MapperForEvent(event *privatev1.Event) (ResourceMapper, error) {
-	return mapperForEvent(event)
+	return MapperForEventWithContext(event, MapperContext{})
+}
+
+// MapperForEventWithContext returns a mapper enriched with deployment and
+// immutable ExternalIP pool metadata needed by networking billing.
+func MapperForEventWithContext(event *privatev1.Event, context MapperContext) (ResourceMapper, error) {
+	return mapperForEvent(event, context)
 }
 
 // mapperForEvent returns the ResourceMapper for the event's payload type.
 // Adding a new resource type = one case here + one mapper file.
-func mapperForEvent(event *privatev1.Event) (ResourceMapper, error) {
+func mapperForEvent(event *privatev1.Event, context MapperContext) (ResourceMapper, error) {
 	if ci := event.GetComputeInstance(); ci != nil {
 		return &computeInstanceMapper{ci: ci}, nil
 	}
 	if cl := event.GetCluster(); cl != nil {
 		return &clusterMapper{cl: cl}, nil
+	}
+	if ip := event.GetExternalIp(); ip != nil {
+		return &externalIPMapper{ip: ip, context: context}, nil
+	}
+	if gateway := event.GetNatGateway(); gateway != nil {
+		return &natGatewayMapper{gateway: gateway, deployment: context.DeploymentID}, nil
 	}
 	return nil, fmt.Errorf("unsupported event payload type for event %s", event.GetId())
 }

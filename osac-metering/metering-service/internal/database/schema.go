@@ -1,11 +1,30 @@
--- Design doc (enhancement-proposals#131) schema includes catalog_item_id, template_id,
--- last_metered_at, and version columns; fulfillment_version is BIGINT there.
--- Deferred: catalog_item_id/template_id (not yet used by heartbeat/correction consumers),
--- last_metered_at (superseded by last_heartbeat_at + transition_time),
--- version (fulfillment_version + SELECT FOR UPDATE suffice for current concurrency model).
--- INT for fulfillment_version matches proto int32; BIGINT deferred until version space grows.
+/*
+Copyright (c) 2026 Red Hat, Inc.
 
-CREATE TABLE metering_resource_state (
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+in compliance with the License. You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+*/
+
+package database
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func InitializeSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("creating metering database schema: %w", err)
+	}
+	return nil
+}
+
+const schemaSQL = `
+CREATE TABLE IF NOT EXISTS metering_resource_state (
     resource_id       TEXT        NOT NULL PRIMARY KEY,
     resource_type     TEXT        NOT NULL,
     tenant_id         TEXT        NOT NULL,
@@ -24,12 +43,13 @@ CREATE TABLE metering_resource_state (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_metering_resource_state_billable
+CREATE INDEX IF NOT EXISTS idx_metering_resource_state_billable
     ON metering_resource_state (is_billable, last_heartbeat_at)
     WHERE is_billable = TRUE;
 
-CREATE INDEX idx_metering_resource_state_tenant
+CREATE INDEX IF NOT EXISTS idx_metering_resource_state_tenant
     ON metering_resource_state (tenant_id);
 
-CREATE INDEX idx_metering_resource_state_resource_type
+CREATE INDEX IF NOT EXISTS idx_metering_resource_state_resource_type
     ON metering_resource_state (resource_type);
+`

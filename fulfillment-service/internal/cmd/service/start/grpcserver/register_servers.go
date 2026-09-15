@@ -224,6 +224,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetAttributionLogic(deps.PublicAttributionLogic).
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
+		SetServiceFlags(deps.Services).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host types server: %w", err)
@@ -238,6 +239,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetAttributionLogic(deps.PrivateAttributionLogic).
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
+		SetServiceFlags(deps.Services).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private host types server: %w", err)

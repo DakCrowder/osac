@@ -6,6 +6,8 @@
 # between the umbrella chart's own templates and its subcharts without
 # duplicating it as separate --set flags per value.
 global:
+  # Required stable identity for this OSAC/fulfillment-service deployment.
+  osacDeploymentId: ""
   # [REQUIRED on OpenShift, via --set global.clusterDomain=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')]
   # Backs the tpl-templated defaults below (service.auth.issuerUrl,
   # service.idp.url, service.vault.keycloakIssuerUrl) so they automatically

@@ -54,6 +54,8 @@ const eventBillableStart = "internal.billable-boundary-crossed"
 const (
 	ResourceTypeComputeInstance = schema.ResourceTypeComputeInstance
 	ResourceTypeClusterOrder    = schema.ResourceTypeClusterOrder
+	ResourceTypeExternalIP      = schema.ResourceTypeExternalIP
+	ResourceTypeNATGateway      = schema.ResourceTypeNATGateway
 )
 
 // StateEmpty is the empty previous state for initial transitions.
@@ -152,6 +154,8 @@ func singleEvent(dims map[string]any, baseID string, buildFn EventBuilder) ([]cl
 var resourceDecomposers = map[string]EventDecomposer{
 	ResourceTypeComputeInstance: singleEvent,
 	ResourceTypeClusterOrder:    DecomposeClusterEvents,
+	ResourceTypeExternalIP:      singleEvent,
+	ResourceTypeNATGateway:      singleEvent,
 }
 
 // BuildResourceEvents dispatches event building to the correct decomposer

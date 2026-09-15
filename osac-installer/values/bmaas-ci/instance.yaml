@@ -2,6 +2,7 @@
 
 # --- Service Enablement ---
 global:
+  osacDeploymentId: "ci/osac"
   services:
     caas:
       enabled: false

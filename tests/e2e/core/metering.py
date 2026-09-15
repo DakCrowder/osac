@@ -5,7 +5,7 @@ import logging
 import time
 import urllib.error
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -47,11 +47,9 @@ class MeteringCollector:
         self._expectations: list[ExpectedEvent] = []
         self._matched: set[str] = set()
         self._verified: dict[tuple[str, str], dict[str, Any]] = {}
-        self._start_time: str = ""
 
     def start(self) -> None:
-        """Record the start time so event queries only return events after this point."""
-        self._start_time = datetime.now(UTC).isoformat()
+        """Initialize collection without comparing clocks across runner and pod."""
 
     def stop(self) -> None:
         """No-op -- no background resources to clean up."""
@@ -105,7 +103,9 @@ class MeteringCollector:
         return self._fetch_events(event_type, resource_id)
 
     def _fetch_events(self, event_type: str, resource_id: str) -> list[dict[str, Any]]:
-        params = urlencode({"type": event_type, "resource_id": resource_id, "since": self._start_time})
+        # Resource IDs are unique per test resource. Avoid filtering by a
+        # runner-side timestamp because the echo adapter uses pod time.
+        params = urlencode({"type": event_type, "resource_id": resource_id})
         url = f"{self._base_url}/events?{params}"
         last_exc: OSError | None = None
         for attempt in range(3):
@@ -163,7 +163,7 @@ class MeteringCollector:
         assert event.get("osacresourceid") == expected.resource_id, (
             f"Wrong osacresourceid: {event.get('osacresourceid')}"
         )
-        assert event.get("osacresourcetype") in ("compute_instance", "cluster_order"), (
+        assert event.get("osacresourcetype") in ("compute_instance", "cluster_order", "external_ip", "nat_gateway"), (
             f"Wrong osacresourcetype: {event.get('osacresourcetype')}"
         )
         assert event.get("osactenant"), "Missing osactenant"
@@ -171,6 +171,9 @@ class MeteringCollector:
         data = event.get("data", {})
         assert data.get("resource_id") == expected.resource_id, f"Wrong resource_id in data: {data.get('resource_id')}"
         assert data.get("resource_type"), "Missing resource_type in data"
+        assert data["resource_type"] == event.get("osacresourcetype"), (
+            f"Mismatched resource types: {data['resource_type']!r} != {event.get('osacresourcetype')!r}"
+        )
         assert data.get("tenant_id"), "Missing tenant_id in data"
         assert data.get("schema_version") == "v1", f"Wrong schema_version: {data.get('schema_version')}"
         assert "project_id" in data, "Missing project_id in data"
@@ -183,13 +186,20 @@ class MeteringCollector:
             except (ValueError, TypeError) as exc:
                 raise AssertionError(f"Invalid RFC3339 transition_time: {data.get('transition_time')}") from exc
 
+        resource_type = event.get("osacresourcetype")
         transition_types = {"osac.resource.started.v1", "osac.resource.suspended.v1", "osac.resource.resumed.v1"}
         if expected.event_type in transition_types:
             assert "previous_state" in data, f"Missing previous_state in {expected.event_type}"
             assert "duration_seconds" in data, f"Missing duration_seconds in {expected.event_type}"
 
         if expected.event_type == "osac.resource.suspended.v1":
-            valid = ("RUNNING", "STOPPING", "STARTING", "PROGRESSING", "READY")
+            valid_previous_states = {
+                "compute_instance": ("RUNNING", "STOPPING", "STARTING", "PROGRESSING", "READY"),
+                "cluster_order": ("RUNNING", "STOPPING", "STARTING", "PROGRESSING", "READY"),
+                "external_ip": ("ALLOCATED",),
+                "nat_gateway": ("READY",),
+            }
+            valid = valid_previous_states[resource_type]
             assert data.get("previous_state") in valid, (
                 f"suspended.v1 previous_state should be one of {valid}, got {data.get('previous_state')!r}"
             )
@@ -200,11 +210,14 @@ class MeteringCollector:
                 f"resumed.v1 previous_state should be one of {valid}, got {data.get('previous_state')!r}"
             )
 
-        resource_type = event.get("osacresourcetype")
         if resource_type == "compute_instance":
             _validate_vmaas_billing(event)
         elif resource_type == "cluster_order":
             _validate_caas_billing(event, expected.event_type)
+        elif resource_type == "external_ip":
+            _validate_external_ip_billing(event)
+        elif resource_type == "nat_gateway":
+            _validate_nat_gateway_billing(event)
 
 
 def _validate_vmaas_billing(event: dict[str, Any]) -> None:
@@ -233,3 +246,21 @@ def _validate_caas_billing(event: dict[str, Any], event_type: str) -> None:
     assert isinstance(bd.get("node_count"), (int, float)) and bd["node_count"] > 0, (
         f"node_count should be positive number, got {bd.get('node_count')!r}"
     )
+
+
+def _validate_external_ip_billing(event: dict[str, Any]) -> None:
+    bd = event.get("data", {}).get("billing_dimensions", {})
+    assert bd.get("deployment"), "Missing deployment in billing_dimensions"
+    assert bd.get("pool"), "Missing pool in billing_dimensions"
+    assert isinstance(bd.get("attached"), bool), "attached should be boolean"
+    if bd["attached"]:
+        assert bd.get("attribution_type"), "Missing attribution_type for attached ExternalIP"
+        assert bd.get("attribution_id"), "Missing attribution_id for attached ExternalIP"
+
+
+def _validate_nat_gateway_billing(event: dict[str, Any]) -> None:
+    bd = event.get("data", {}).get("billing_dimensions", {})
+    for key in ("deployment", "virtual_network", "external_ip"):
+        assert bd.get(key), f"Missing {key} in billing_dimensions"
+    assert "attribution_type" not in bd
+    assert "attribution_id" not in bd

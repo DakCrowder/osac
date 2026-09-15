@@ -48,6 +48,29 @@ osac
 {{- end }}
 
 {{/*
+Stable identity for the OSAC/fulfillment-service deployment. The configured
+value is required on every render; the retained ConfigMap detects accidental
+identity changes across upgrades and reinstall attempts.
+*/}}
+{{- define "osac.osacDeploymentIdentityName" -}}
+{{- $release := .Release.Name | trunc 49 | trimSuffix "-" -}}
+{{- $hash := sha256sum .Release.Name | trunc 8 -}}
+{{- printf "%s-osac-%s" $release $hash -}}
+{{- end -}}
+
+{{- define "osac.osacDeploymentId" -}}
+{{- $configured := required "global.osacDeploymentId is required" .Values.global.osacDeploymentId -}}
+{{- $identity := lookup "v1" "ConfigMap" .Release.Namespace (include "osac.osacDeploymentIdentityName" .) -}}
+{{- if $identity -}}
+{{- $stored := required "OSAC deployment identity ConfigMap is missing osacDeploymentId" (index $identity.data "osacDeploymentId") -}}
+{{- if ne $configured $stored -}}
+{{- fail (printf "global.osacDeploymentId cannot change from %q to %q" $stored $configured) -}}
+{{- end -}}
+{{- end -}}
+{{- $configured -}}
+{{- end -}}
+
+{{/*
 Wait-for-fulfillment init container.
 Uses .Values.cliImage for the container image.
 */}}

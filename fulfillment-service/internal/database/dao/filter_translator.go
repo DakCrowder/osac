@@ -352,6 +352,26 @@ func (t *FilterTranslator) translateCall(expr ast.CallExpr) (result filterTransl
 			return
 		}
 		result, err = t.translateToLike(funcName, expr.Target(), funcArgs[0], "%", "")
+	case "size":
+		if len(funcArgs) != 0 {
+			err = fmt.Errorf(
+				"expected no arguments for function '%s' but got %d",
+				funcName, len(funcArgs),
+			)
+			return
+		}
+		targetTr, targetErr := t.translate(expr.Target())
+		if targetErr != nil {
+			err = targetErr
+			return
+		}
+		if targetTr.kind != filterTranslatorJsonArrayKind {
+			err = fmt.Errorf("function '%s' isn't supported for field of kind '%s'", funcName, targetTr.kind)
+			return
+		}
+		result.sql = fmt.Sprintf("coalesce(jsonb_array_length(%s), 0)", targetTr.sql)
+		result.kind = filterTranslatorNumericKind
+		result.precedence = filterTranslatorMaxPrecedence
 	default:
 		err = fmt.Errorf("function '%s' isn't supported", funcName)
 		return

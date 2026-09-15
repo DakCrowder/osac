@@ -20,10 +20,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/events"
+	"github.com/osac-project/osac/fulfillment-service/internal/services"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
 
@@ -34,15 +38,22 @@ type PrivateHostTypesServerBuilder struct {
 	tenancyLogic      auth.TenancyLogic
 	metricsRegisterer prometheus.Registerer
 	filterDesc        protoreflect.MessageDescriptor
+	serviceFlags      *services.Flags
 }
 
 var _ privatev1.HostTypesServer = (*PrivateHostTypesServer)(nil)
 
 type PrivateHostTypesServer struct {
 	privatev1.UnimplementedHostTypesServer
-	logger  *slog.Logger
-	generic *GenericServer[*privatev1.HostType]
+	logger       *slog.Logger
+	generic      *GenericServer[*privatev1.HostType]
+	serviceFlags *services.Flags
 }
+
+const (
+	bareMetalHostTypesFilter = "this.interfaces.size() > 0"
+	virtualHostTypesFilter   = "this.interfaces.size() == 0"
+)
 
 func NewPrivateHostTypesServer() *PrivateHostTypesServerBuilder {
 	return &PrivateHostTypesServerBuilder{}
@@ -82,6 +93,12 @@ func (b *PrivateHostTypesServerBuilder) SetFilterDesc(value protoreflect.Message
 	return b
 }
 
+// SetServiceFlags sets the enabled services used to filter host types.
+func (b *PrivateHostTypesServerBuilder) SetServiceFlags(value *services.Flags) *PrivateHostTypesServerBuilder {
+	b.serviceFlags = value
+	return b
+}
+
 func (b *PrivateHostTypesServerBuilder) Build() (result *PrivateHostTypesServer, err error) {
 	// Check parameters:
 	if b.logger == nil {
@@ -110,14 +127,20 @@ func (b *PrivateHostTypesServerBuilder) Build() (result *PrivateHostTypesServer,
 
 	// Create and populate the object:
 	result = &PrivateHostTypesServer{
-		logger:  b.logger,
-		generic: generic,
+		logger:       b.logger,
+		generic:      generic,
+		serviceFlags: b.serviceFlags,
 	}
 	return
 }
 
 func (s *PrivateHostTypesServer) List(ctx context.Context,
 	request *privatev1.HostTypesListRequest) (response *privatev1.HostTypesListResponse, err error) {
+	filter := hostTypesFilter(request.GetFilter(), s.serviceFlags)
+	if filter != request.GetFilter() {
+		request = proto.Clone(request).(*privatev1.HostTypesListRequest)
+		request.SetFilter(filter)
+	}
 	err = s.generic.List(ctx, request, &response)
 	return
 }
@@ -125,7 +148,57 @@ func (s *PrivateHostTypesServer) List(ctx context.Context,
 func (s *PrivateHostTypesServer) Get(ctx context.Context,
 	request *privatev1.HostTypesGetRequest) (response *privatev1.HostTypesGetResponse, err error) {
 	err = s.generic.Get(ctx, request, &response)
+	if err != nil {
+		return
+	}
+	if !hostTypeEnabled(response.GetObject(), s.serviceFlags) {
+		response = nil
+		err = grpcstatus.Errorf(grpccodes.NotFound, "object with identifier '%s' not found", request.GetId())
+	}
 	return
+}
+
+func hostTypesFilter(filter string, flags *services.Flags) string {
+	predicate := hostTypesPredicate(flags)
+	if predicate == "" {
+		return filter
+	}
+	if filter == "" {
+		return predicate
+	}
+	return "(" + filter + ") && (" + predicate + ")"
+}
+
+func hostTypesPredicate(flags *services.Flags) string {
+	if flags == nil || (flags.VMaaS && flags.BMaaS) {
+		return ""
+	}
+	if !flags.VMaaS && !flags.BMaaS {
+		return "false"
+	}
+	if flags.BMaaS {
+		return bareMetalHostTypesFilter
+	}
+	return virtualHostTypesFilter
+}
+
+func hostTypeEnabled(object *privatev1.HostType, flags *services.Flags) bool {
+	if flags == nil || (flags.VMaaS && flags.BMaaS) {
+		return true
+	}
+	return (flags.BMaaS && isBareMetalHostType(object)) ||
+		(flags.VMaaS && isVirtualHostType(object))
+}
+
+// HostType interfaces describe physical NICs. The API contract uses a non-empty
+// interfaces list to identify bare-metal host types; an empty list identifies
+// virtual machine host types, whose NICs come from the overlay network.
+func isBareMetalHostType(object *privatev1.HostType) bool {
+	return len(object.GetInterfaces()) > 0
+}
+
+func isVirtualHostType(object *privatev1.HostType) bool {
+	return !isBareMetalHostType(object)
 }
 
 func (s *PrivateHostTypesServer) Create(ctx context.Context,

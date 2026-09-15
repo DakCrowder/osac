@@ -13,4 +13,6 @@ package schema
 const (
 	ResourceTypeComputeInstance = "compute_instance"
 	ResourceTypeClusterOrder    = "cluster_order"
+	ResourceTypeExternalIP      = "external_ip"
+	ResourceTypeNATGateway      = "nat_gateway"
 )

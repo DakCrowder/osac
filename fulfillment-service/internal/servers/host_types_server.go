@@ -24,6 +24,7 @@ import (
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/events"
+	"github.com/osac-project/osac/fulfillment-service/internal/services"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
@@ -34,6 +35,7 @@ type HostTypesServerBuilder struct {
 	attributionLogic  auth.AttributionLogic
 	tenancyLogic      auth.TenancyLogic
 	metricsRegisterer prometheus.Registerer
+	serviceFlags      *services.Flags
 }
 
 var _ publicv1.HostTypesServer = (*HostTypesServer)(nil)
@@ -82,6 +84,12 @@ func (b *HostTypesServerBuilder) SetMetricsRegisterer(value prometheus.Registere
 	return b
 }
 
+// SetServiceFlags sets the enabled services used to filter host types.
+func (b *HostTypesServerBuilder) SetServiceFlags(value *services.Flags) *HostTypesServerBuilder {
+	b.serviceFlags = value
+	return b
+}
+
 func (b *HostTypesServerBuilder) Build() (result *HostTypesServer, err error) {
 	// Check parameters:
 	if b.logger == nil {
@@ -116,6 +124,7 @@ func (b *HostTypesServerBuilder) Build() (result *HostTypesServer, err error) {
 		SetAttributionLogic(b.attributionLogic).
 		SetTenancyLogic(b.tenancyLogic).
 		SetMetricsRegisterer(b.metricsRegisterer).
+		SetServiceFlags(b.serviceFlags).
 		SetFilterDesc((*publicv1.HostType)(nil).ProtoReflect().Descriptor()).
 		Build()
 	if err != nil {
