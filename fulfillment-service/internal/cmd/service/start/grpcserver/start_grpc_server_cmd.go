@@ -634,56 +634,55 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		return fmt.Errorf("failed to read vault flags: %w", err)
 	}
 
-	// Set up vault if configured:
-	var secretStore vault.SecretStore
-	if c.args.vaultBase.Endpoint != "" {
-		c.logger.InfoContext(ctx, "Performing vault health check")
-		vaultCaPool := caPool
-		if c.args.vaultBase.CaCertFile != "" {
-			vaultCaPool, err = trust.NewCertPool().
-				SetLogger(c.logger).
-				AddSystemFiles(true).
-				AddKubernetesFiles(true).
-				AddFiles(c.args.caFiles...).
-				AddFile(c.args.vaultBase.CaCertFile).
-				Build()
-			if err != nil {
-				return fmt.Errorf("failed to load vault CA certificates: %w", err)
-			}
-		}
-		healthChecker, healthErr := vault.NewHealthChecker().
+	// Set up vault:
+	if err = vault.ValidateBaseConfig(c.args.vaultBase); err != nil {
+		return fmt.Errorf("invalid vault configuration: %w", err)
+	}
+	c.logger.InfoContext(ctx, "Performing vault health check")
+	vaultCaPool := caPool
+	if c.args.vaultBase.CaCertFile != "" {
+		vaultCaPool, err = trust.NewCertPool().
 			SetLogger(c.logger).
-			SetAddress(c.args.vaultBase.Endpoint).
-			SetCaPool(vaultCaPool).
-			Build()
-		if healthErr != nil {
-			c.logger.ErrorContext(ctx, "Failed to create Vault health checker",
-				slog.String("error", healthErr.Error()),
-			)
-		} else if healthErr = healthChecker.Check(ctx); healthErr != nil {
-			c.logger.ErrorContext(ctx, "Vault health check failed",
-				slog.String("error", healthErr.Error()),
-			)
-		}
-
-		tenantTokenSource, tokenErr := vault.NewServiceTenantTokenSourceFromConfig(
-			c.logger, c.args.vaultBase, vaultCaPool,
-		)
-		if tokenErr != nil {
-			return fmt.Errorf("failed to create service tenant token source: %w", tokenErr)
-		}
-
-		secretStore, err = vault.NewVaultSecretStore().
-			SetLogger(c.logger).
-			SetAddress(c.args.vaultBase.Endpoint).
-			SetTokenSource(tenantTokenSource).
-			SetParentNamespace(c.args.vaultBase.Namespace).
-			SetKVMountPath(c.args.vaultBase.KVMountPath).
-			SetCaPool(vaultCaPool).
+			AddSystemFiles(true).
+			AddKubernetesFiles(true).
+			AddFiles(c.args.caFiles...).
+			AddFile(c.args.vaultBase.CaCertFile).
 			Build()
 		if err != nil {
-			return fmt.Errorf("failed to create vault secret store: %w", err)
+			return fmt.Errorf("failed to load vault CA certificates: %w", err)
 		}
+	}
+	healthChecker, healthErr := vault.NewHealthChecker().
+		SetLogger(c.logger).
+		SetAddress(c.args.vaultBase.Endpoint).
+		SetCaPool(vaultCaPool).
+		Build()
+	if healthErr != nil {
+		return fmt.Errorf("failed to create Vault health checker: %w", healthErr)
+	}
+	if healthErr = healthChecker.Check(ctx); healthErr != nil {
+		c.logger.ErrorContext(ctx, "Vault health check failed",
+			slog.String("error", healthErr.Error()),
+		)
+	}
+
+	tenantTokenSource, tokenErr := vault.NewServiceTenantTokenSourceFromConfig(
+		c.logger, c.args.vaultBase, vaultCaPool,
+	)
+	if tokenErr != nil {
+		return fmt.Errorf("failed to create service tenant token source: %w", tokenErr)
+	}
+
+	secretStore, err := vault.NewVaultSecretStore().
+		SetLogger(c.logger).
+		SetAddress(c.args.vaultBase.Endpoint).
+		SetTokenSource(tenantTokenSource).
+		SetParentNamespace(c.args.vaultBase.Namespace).
+		SetKVMountPath(c.args.vaultBase.KVMountPath).
+		SetCaPool(vaultCaPool).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create vault secret store: %w", err)
 	}
 
 	// Create the tier resolver for the volumes server. The resolver looks up a
