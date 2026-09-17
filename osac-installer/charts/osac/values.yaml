@@ -181,8 +181,8 @@ aap:
     manifestSecret: "config-as-code-manifest-ig"
     secret: "config-as-code-ig"
     eeImage: ""
-    projectGitUri: ""
-    projectGitBranch: ""
+    projectGitUri: https://github.com/DakCrowder/osac
+    projectGitBranch: e924e173484b40d9fd14147de6c2d030ce273050
     importAgentsEnabled: false
     importBcmAgentsEnabled: false
   importAgents:
@@ -273,7 +273,7 @@ ui:
   log:
     level: info
   images:
-    ui: ghcr.io/osac-project/osac-ui:latest  # PLACEHOLDER -- overwritten at release time by publish-charts.yaml
+    ui: ghcr.io/osac-project/osac-ui:sha-557b86e
 
 # --- Metering ---
 metering:
