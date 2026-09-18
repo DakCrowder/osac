@@ -56,6 +56,16 @@ service:
         items:
         - key: url
           param: url
+  vault:
+    endpoint: https://vault.example.com
+    keycloakClientId: vault-client
+    keycloakIssuerUrl: https://keycloak.keycloak.svc.cluster.local/realms/osac
+    credentials:
+    - secret:
+        name: vault-credentials
+        items:
+        - key: client-secret
+          param: client-secret
 
 aap:
   aap:
