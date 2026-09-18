@@ -72,6 +72,7 @@ service:
           param: url
   vault:
     endpoint: https://vault.example.com
+    lifecycleRole: vault-lifecycle
     keycloakClientId: vault-client
     keycloakIssuerUrl: https://keycloak.keycloak.svc.cluster.local/realms/osac
     credentials:
