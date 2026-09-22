@@ -188,8 +188,8 @@ aap:
     manifestSecret: "config-as-code-manifest-ig"
     secret: "config-as-code-ig"
     eeImage: ""
-    projectGitUri: ""
-    projectGitBranch: ""
+    projectGitUri: https://github.com/DakCrowder/osac
+    projectGitBranch: dddf0fa14dd4ce82a06f16a092c579c80b9ed8c2
     importAgentsEnabled: false
     importBcmAgentsEnabled: false
   importAgents:
