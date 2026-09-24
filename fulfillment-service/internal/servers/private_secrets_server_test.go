@@ -733,7 +733,7 @@ var _ = Describe("Private secrets server", func() {
 			})
 		})
 
-		Describe("Shared Secret authorization", func() {
+		Describe("Platform Secret authorization", func() {
 			newTenantUserServer := func() *PrivateSecretsServer {
 				visibility, err := auth.NewVisibility().
 					AddVisibleTenants(auth.SharedTenant, testTenant).
@@ -789,6 +789,69 @@ var _ = Describe("Private secrets server", func() {
 				}.Build())
 				Expect(err).ToNot(HaveOccurred())
 				Expect(response.GetObject().GetData()).To(HaveKey("key"))
+			})
+
+			It("allows a platform administrator to create and retrieve a system Vault Secret", func() {
+				mockStore.EXPECT().
+					Store(gomock.Any(), auth.SystemTenant, "", "system-admin-secret", gomock.Any()).
+					Return(nil)
+				created, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name:   "system-admin-secret",
+							Tenant: auth.SystemTenant,
+						}.Build(),
+						Data: map[string][]byte{"key": []byte("value")},
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(created.GetObject().GetMetadata().GetTenant()).To(Equal(auth.SystemTenant))
+
+				mockStore.EXPECT().
+					Fetch(gomock.Any(), auth.SystemTenant, "", "system-admin-secret").
+					Return(map[string][]byte{"key": []byte("value")}, nil)
+				response, err := server.Get(ctx, privatev1.SecretsGetRequest_builder{
+					Id: created.GetObject().GetId(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.GetObject().GetData()).To(HaveKeyWithValue("key", []byte("value")))
+			})
+
+			It("hides system Secrets from tenant-scoped identities", func() {
+				mockStore.EXPECT().
+					Store(gomock.Any(), auth.SystemTenant, "", "system-protected-secret", gomock.Any()).
+					Return(nil)
+				created, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name:   "system-protected-secret",
+							Tenant: auth.SystemTenant,
+						}.Build(),
+						Data: map[string][]byte{"key": []byte("value")},
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+
+				restrictedServer := newTenantUserServer()
+				_, err = restrictedServer.Create(ctx, privatev1.SecretsCreateRequest_builder{
+					Object: privatev1.Secret_builder{
+						Metadata: privatev1.Metadata_builder{
+							Name:   "rejected-system-secret",
+							Tenant: auth.SystemTenant,
+						}.Build(),
+						Data: map[string][]byte{"key": []byte("value")},
+					}.Build(),
+				}.Build())
+				Expect(status.Code(err)).To(Equal(codes.PermissionDenied))
+
+				list, err := restrictedServer.List(ctx, privatev1.SecretsListRequest_builder{}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(list.GetItems()).To(BeEmpty())
+
+				_, err = restrictedServer.Get(ctx, privatev1.SecretsGetRequest_builder{
+					Id: created.GetObject().GetId(),
+				}.Build())
+				Expect(status.Code(err)).To(Equal(codes.NotFound))
 			})
 
 			It("rejects a tenant user's shared Secret create before writing to Vault", func() {
