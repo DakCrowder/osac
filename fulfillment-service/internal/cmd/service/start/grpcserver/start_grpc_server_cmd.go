@@ -305,7 +305,10 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	if healthErr != nil {
 		return fmt.Errorf("failed to create Vault health checker: %w", healthErr)
 	}
-	if healthErr = healthChecker.Check(ctx); healthErr != nil {
+	healthCheckCtx, cancelHealthCheck := context.WithTimeout(ctx, 10*time.Second)
+	healthErr = healthChecker.Check(healthCheckCtx)
+	cancelHealthCheck()
+	if healthErr != nil {
 		c.logger.ErrorContext(ctx, "Vault health check failed",
 			slog.String("error", healthErr.Error()),
 		)
