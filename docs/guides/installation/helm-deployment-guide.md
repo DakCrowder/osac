@@ -32,7 +32,8 @@ Installs infrastructure in two Helm releases:
 
 2. **osac-infra** — CRD instances: CertManager CR, ClusterIssuer, CA certificates,
    trust-manager Bundle, Keycloak, LVMCluster, HyperConverged, MetalLB IPAddressPool,
-   controller credentials, and bundled PostgreSQL (development only).
+   controller credentials, bundled PostgreSQL (development only), and bundled Openbao
+   (development only).
 
 ### Phase 2: `osac`
 
@@ -171,6 +172,7 @@ and `osac-infra`. Keys a chart doesn't recognize are ignored.
 | `bundledPostgres.enabled` | Deploys an ephemeral in-cluster PostgreSQL database. Set it to `false` for production. | `false` |
 | `bundledPostgres.database.name` | Bundled database name. | `service` |
 | `bundledPostgres.database.user` | Bundled database owner. | `service` |
+| `bundledVault.enabled` | Deploys an ephemeral in-cluster OpenBao secret store. Set it to `false` for production and configure external Vault in the `osac` values file; see the [secrets management configuration guide](secrets-management-configuration.md). | `true` |
 | `cliImage` | The `oc` image that the chart hook jobs use. | `origin-cli:4.20.0` |
 
 ## When Prerequisites Already Exist
@@ -236,6 +238,9 @@ charts create and the `osac` release depends on.
 - An operand custom resource for each Operator you use.
 - For a production deployment, an external PostgreSQL database with the
   `osac-db-*` Secrets.
+- For a production deployment, an external Vault-compatible store. Complete
+  the [secrets management configuration guide](secrets-management-configuration.md)
+  before installing the `osac` chart.
 
 If any of these is missing, run the phase-1 installations with the matching
 toggles set to `false`.
@@ -249,7 +254,7 @@ Disable these for any real deployment.
 | Value | Default | What it does |
 |-------|---------|-------------|
 | `bundledPostgres.enabled` | `false` | Deploys a single-pod ephemeral PostgreSQL. Uses `fsync=off` and `emptyDir` — data lost on restart. Not for production. |
-| `bundledVault.enabled` | `true` | Deploys a single-pod ephemeral OpenBao (Vault-compatible) secret store in the `osac-infra` namespace. Dev mode — data is lost on restart. Not for production. The OSAC instance chart connects via FQDN (`openbao.osac-infra.svc.cluster.local`). |
+| `bundledVault.enabled` | `true` | Deploys a single-pod ephemeral OpenBao secret store in the `osac-infra` namespace. Dev mode — data is lost on restart. Set to `false` for production and follow the [secrets management configuration guide](secrets-management-configuration.md). |
 
 ### Instance chart (`osac`) values
 

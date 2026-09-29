@@ -9,7 +9,7 @@ current default policy, tenant users can manage any tenant-level Secrets there.
 Only store credentials there if other members of that tenant may read them.
 Cloud provider administrators can also manage Secrets in the built-in `shared`
 tenant. For secret-store deployment, see
-[Secrets Management Configuration](admin/secrets-management.md).
+[Secrets Management Configuration](installation/secrets-management-configuration.md).
 
 ## Create and use a Secret
 

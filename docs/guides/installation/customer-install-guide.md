@@ -50,13 +50,13 @@ Keycloak and the `osac` realm in the `keycloak` namespace, and the operand
 custom resources (CRs) `HyperConverged`, `LVMCluster`, the MetalLB
 `IPAddressPool`, and the Kafka CR. The `configure-*` hooks wait for each
 remaining Operator CSV to reach `Succeeded` before applying its operand. For
-evaluation, this phase also deploys a bundled PostgreSQL database.
+evaluation, this phase can also deploy bundled PostgreSQL database and OpenBao.
 
 **Phase 2: `osac`.** Installs the platform into your namespace: the OSAC
 Operator and its CRDs, the Fulfillment Service with an Envoy sidecar, an AAP
 instance and its bootstrap job, the OSAC web console, metering, the CSI driver,
-the Bare Metal Fulfillment Operator (BMaaS only), and a bundled OpenBao secret
-store.
+and the Bare Metal Fulfillment Operator (BMaaS only). It connects to the
+bundled OpenBao or the external secret store configured for the deployment.
 
 This guide installs only phase 2. Phase 1a and phase 1b are set up ahead of
 time by whoever prepares the cluster — see the
@@ -201,7 +201,10 @@ Required for a production deployment:
   information, see
   [`fulfillment-service/docs/INSTALL.md`](https://github.com/osac-project/osac/blob/main/fulfillment-service/docs/INSTALL.md).
 - **An external secret store.** The bundled OpenBao secret store is a single
-  ephemeral pod that loses data on restart.
+  ephemeral pod that loses data on restart. Before installing the `osac` chart,
+  prepare Vault or OpenBao, its Keycloak client, and the Kubernetes Secret and
+  CA bundle used by OSAC. See the
+  [secrets management configuration guide](secrets-management-configuration.md).
 
 Required for CaaS:
 
@@ -303,6 +306,9 @@ Install OSAC with `oc` and Helm.
 - You have the AAP subscription manifest file (`license.zip`).
 - For a production deployment, your external PostgreSQL database is running and
   reachable from the cluster.
+- For a production deployment, your external Vault-compatible store is running
+  and reachable from the cluster. See the
+  [secrets management configuration guide](secrets-management-configuration.md).
 
 **Procedure**
 
@@ -346,6 +352,10 @@ Run all installation commands in the same shell session.
    > The chart pre-installation hook fails if the connection URL that these
    > Secrets carry does not resolve to a ready PostgreSQL Service.
 
+6. For a production deployment, follow the
+   [secrets management configuration guide](secrets-management-configuration.md)
+   to prepare the Vault configuration.
+
 ### 4.2 Configuring the Helm values
 
 You create one values file for the `osac` chart, `my-values.yaml`.
@@ -363,7 +373,6 @@ You create one values file for the `osac` chart, `my-values.yaml`.
    PostgreSQL database, an external Keycloak, and pinned image tags.
 
 3. Add the following hardening to `my-values.yaml`:
-
    ```yaml
    keycloak:
      devFixtures:
@@ -376,7 +385,10 @@ You create one values file for the `osac` chart, `my-values.yaml`.
      enabled: false
    ```
 
-4. Add the service-specific value blocks (`global.services.*`, `csiDriver`,
+4. For a production deployment, add `service.vault` to `my-values.yaml` using
+   the [secrets management configuration guide](secrets-management-configuration.md#configure-the-osac-instance).
+
+5. Add the service-specific value blocks (`global.services.*`, `csiDriver`,
    `operator.networkManagers`, `networkClass`, `aap`, `metering`, and `bmf`)
    from [Section 6](#6-installation-workflows-by-service) for the service you
    are installing.
@@ -396,6 +408,8 @@ Use this procedure when the cluster already meets the prerequisites.
   Keycloak with the `osac` realm, and the credential Secrets exist.
 - For a production deployment, the external PostgreSQL database and its
   `osac-db-*` Secrets exist.
+- For a production deployment, the external Vault-compatible is configured
+  according to the [secrets management configuration guide](secrets-management-configuration.md).
 - You completed [Section 4.1](#41-preparing-the-cluster) and
   [Section 4.2](#42-configuring-the-helm-values).
 
@@ -491,8 +505,8 @@ subchart's own `values.yaml` file.
 | `service.idp.provider`, `service.idp.url`, `service.idp.credentials[]` | Identity provider for user and role management. Only `keycloak` is supported. |
 | `service.database.connection[]` | Volume sources for the database URL and client certificate, for example `osac-db-config` and `osac-db-client-cert`. |
 | `service.log.level`, `service.log.headers`, `service.log.bodies` | Log verbosity. Keep `headers` and `bodies` set to `false` in production. |
-| `service.vault.endpoint` | OpenBao API URL. Templated to the in-cluster bundled OpenBao by default. Set it to `""` to disable Vault integration. |
-| `service.vault.namespace`, `service.vault.kvMountPath`, `service.vault.lifecycleRole`, `service.vault.lifecycleMountPath`, `service.vault.keycloakClientId`, `service.vault.keycloakIssuerUrl`, `service.vault.keycloakAudience`, `service.vault.caBundle`, `service.vault.credentials` | Vault mount paths, the Keycloak client and audience that the controller authenticates with, and its CA and credentials. |
+| `service.vault.endpoint` | Vault-compatible API URL. Defaults to the bundled OpenBao service in `osac-infra`. Set it to your external Vault or OpenBao URL when `bundledVault.enabled` is `false`; the Fulfillment chart requires a nonempty endpoint. See the [secrets management configuration guide](secrets-management-configuration.md). |
+| `service.vault.namespace`, `service.vault.kvMountPath`, `service.vault.lifecycleRole`, `service.vault.lifecycleMountPath`, `service.vault.keycloakClientId`, `service.vault.keycloakIssuerUrl`, `service.vault.keycloakAudience`, `service.vault.caBundle`, `service.vault.credentials` | Vault namespace, mount paths, JWT role, Keycloak client and audience, CA bundle, and client credentials. Configure these for an external store as described in the [secrets management configuration guide](secrets-management-configuration.md). |
 
 **Table 5.5. AAP (`aap.*`, all `schema`)**
 
@@ -1110,6 +1124,9 @@ Reapply the patch after any infrastructure reinstall that recreates this
 - An external PostgreSQL 18 or later database with the `osac-db-*` Secrets
   created in advance. See
   [Section 2.4](#24-credentials-and-external-services).
+- An external Vault-compatible store configured with a parent namespace,
+  Keycloak JWT role, and `service.vault` values. See the
+  [secrets management configuration guide](secrets-management-configuration.md).
 - An external Keycloak configured with the `osac` realm, clients, and roles
   through `service.auth` and `service.idp`.
 - A single hub cluster.
@@ -1126,9 +1143,6 @@ Reapply the patch after any infrastructure reinstall that recreates this
 
 ### 9.3 Not covered by this guide
 
-- A supported external secret store values path for the `osac` chart. The
-  bundled OpenBao is the only wired option. For a standalone secret store, see
-  [`fulfillment-service/docs/INSTALL.md`](https://github.com/osac-project/osac/blob/main/fulfillment-service/docs/INSTALL.md).
 - Setting up the phase-1 prerequisites yourself. See the
   [Helm Deployment Guide](https://github.com/osac-project/osac/blob/main/docs/guides/installation/helm-deployment-guide.md).
 - Detailed configuration of an external Keycloak. The chart accepts an external
@@ -1346,9 +1360,10 @@ $ oc logs deploy/fulfillment-controller -n <namespace>
   infrastructure did not create them. Check with whoever prepared the cluster.
 - `lookup openbao.<namespace>.svc ... no such host` or
   `Failed to provision vault namespace`: `bundledVault.enabled` is `false` but
-  `service.vault.endpoint` still points at the in-cluster OpenBao. Enable
-  `bundledVault`, point `service.vault.endpoint` at an external Vault, or set it
-  to `""` to disable Vault integration.
+  `service.vault.endpoint` still points at the in-cluster OpenBao, or the
+  external store's namespace, policy, JWT role, or credentials are incorrect.
+  Check the endpoint and follow the
+  [secrets management configuration guide](secrets-management-configuration.md#troubleshooting).
 
 ### 11.11 Web console login loops with an `issuer not trusted` error
 

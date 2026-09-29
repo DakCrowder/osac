@@ -11,26 +11,23 @@ For creating and using OSAC Secrets after deployment, see
 ## Vault options and versions
 
 This guide uses HashiCorp Vault terminology and CLI commands. OpenBao is also
-an option because it provides the Vault-compatible API that OSAC needs. OpenBao
-users can replace `vault` with `bao` and use `BAO_ADDR` and `BAO_TOKEN` in place
-of the Vault environment variables. The OSAC Helm settings are the same.
+an option because it provides the Vault-compatible API that OSAC needs.
 
-- **HashiCorp Vault Enterprise 0.11 or later.** Namespaces were introduced in
-  [Vault 0.11](https://www.hashicorp.com/blog/vault-0-11-feature-preview-namespaces).
-  A self-managed Vault deployment needs an appropriate
-  [Enterprise license](https://developer.hashicorp.com/vault/docs/enterprise/namespaces);
-  the Community edition does not provide namespaces.
+- **HashiCorp Vault Enterprise 1.1 or later.** A self-managed Vault deployment needs to
+  provide namespace support which requires an [Enterprise license](https://developer.hashicorp.com/vault/docs/enterprise/namespaces).
 - **OpenBao 2.3.1 or later.** This was the first released version with
   [namespace support](https://openbao.org/docs/2.3.x/release-notes/2-3-0/).
 
 OSAC creates one child namespace per tenant under a parent namespace (normally `osac`).
 These are Vault namespaces, not Kubernetes namespaces.
 
-The installer can deploy a single-pod OpenBao for development and CI. It uses
-in-memory storage, so its data is lost on restart. Set `bundledVault.enabled`
-to `false` in the `osac-infra` values for production. Point the OSAC instance
-at your existing Vault. See the [Helm deployment guide](../../../osac-installer/docs/helm-deployment-guide.md)
-for the two values files and install order.
+The `osac-infra` chart can deploy a single-pod OpenBao for development and CI.
+It uses in-memory storage, so its data is lost on restart. For production, set
+`bundledVault.enabled: false` in the `osac-infra` values file and configure
+`service.vault` in the separate `osac` values file to point at your existing
+Vault. See the [Helm deployment guide](helm-deployment-guide.md) for the install
+order, or the [customer install guide](customer-install-guide.md) if the
+infrastructure layer is already installed.
 
 ## Prerequisites
 
@@ -130,8 +127,10 @@ You do not need to create those tenant resources by hand.
 
 ## Configure the OSAC instance
 
-Store the dedicated client's secret in the OSAC release namespace. For
-example, save it to a local file and create a Kubernetes Secret:
+After creating the OSAC release namespace and the Keycloak client, store the
+client's secret in that namespace. The example below uses `osac`; substitute
+your release namespace if different. Save the client secret to a local file and
+create a Kubernetes Secret:
 
 ```sh
 oc -n osac create secret generic osac-vault-credentials \
@@ -194,8 +193,7 @@ that the services started and Vault responded.
 ## Troubleshooting
 
 - No `Vault health check passed` log entry: check Vault's endpoint, DNS, TLS
-  trust, and whether Vault is initialized and unsealed. A failed startup health
-  check is logged but does not necessarily stop the deployment.
+  trust, and whether Vault is initialized and unsealed.
 - No child namespace appears for a tenant: check the
   `fulfillment-controller` logs for `Failed to provision vault namespace for tenant`.
   Confirm the parent namespace and lifecycle policy, then compare the Keycloak

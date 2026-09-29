@@ -6,7 +6,7 @@ integrate with Keycloak. For general Keycloak installation and administration, s
 the [Keycloak documentation](https://www.keycloak.org/documentation).
 
 For the Keycloak client and OIDC settings needed by Vault or OpenBao, see the
-[Secrets Management setup guide](admin/secrets-management.md).
+[Secrets Management setup guide](installation/secrets-management-configuration.md).
 
 ## Table of Contents
 
