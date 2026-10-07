@@ -29,6 +29,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/idp"
+	"github.com/osac-project/osac/fulfillment-service/internal/masks"
 	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
@@ -168,11 +169,15 @@ var _ = Describe("Finalizer Management", func() {
 			}.Build(),
 		}.Build()
 
-		task := &task{
-			tenant: tenant,
+		r := &function{
+			maskCalculator: masks.NewCalculator().Build(),
+			tenantsClient: finalizerClient{update: func(req *privatev1.TenantsUpdateRequest) (*privatev1.TenantsUpdateResponse, error) {
+				Expect(req.GetLock()).To(BeTrue())
+				return privatev1.TenantsUpdateResponse_builder{Object: req.GetObject()}.Build(), nil
+			}},
 		}
 
-		err := task.update(context.Background())
+		err := r.Run(context.Background(), tenant)
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))

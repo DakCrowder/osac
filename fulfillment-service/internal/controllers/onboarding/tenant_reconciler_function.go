@@ -113,7 +113,7 @@ func (r *function) run(ctx context.Context, tenant *privatev1.Tenant) error {
 		tenant: tenant,
 	}
 	var err error
-	if finalizers.PrepareTenant(tenant) {
+	if t.addFinalizer() {
 		// Persist both barriers before doing any external work.
 	} else if tenant.HasMetadata() && tenant.GetMetadata().HasDeletionTimestamp() {
 		err = t.delete(ctx)
@@ -135,10 +135,6 @@ func (r *function) run(ctx context.Context, tenant *privatev1.Tenant) error {
 }
 
 func (t *task) update(ctx context.Context) error {
-	if t.addFinalizer() {
-		return nil
-	}
-
 	hubs, err := t.listAllHubs(ctx)
 	if err != nil {
 		return err

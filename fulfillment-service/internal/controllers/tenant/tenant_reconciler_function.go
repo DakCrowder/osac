@@ -169,7 +169,7 @@ func (r *function) Run(ctx context.Context, tenant *privatev1.Tenant) error {
 	}
 
 	var reconcileErr error
-	if finalizers.PrepareTenant(tenant) {
+	if task.addFinalizer() {
 		// Persist both barriers before doing any external work.
 	} else if tenant.HasMetadata() && tenant.GetMetadata().HasDeletionTimestamp() {
 		if err := task.delete(ctx); err != nil {
@@ -215,10 +215,6 @@ func (t *task) update(ctx context.Context) error {
 
 // updateLifecycle performs the normal tenant lifecycle reconciliation.
 func (t *task) updateLifecycle(ctx context.Context) error {
-	if t.addFinalizer() {
-		return nil
-	}
-
 	t.setDefaults()
 	t.setConditionDefaults()
 
@@ -461,8 +457,8 @@ func (t *task) validateTenant() error {
 	return nil
 }
 
-// addFinalizer adds the controller finalizer to the tenant if not already present.
-// Returns true if the finalizer was added (indicating the update should be saved immediately).
+// addFinalizer prepares both cleanup barriers.
+// Returns true if the finalizers changed and must be saved immediately.
 func (t *task) addFinalizer() bool {
 	return finalizers.PrepareTenant(t.tenant)
 }
