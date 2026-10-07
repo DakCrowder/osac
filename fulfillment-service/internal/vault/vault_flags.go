@@ -258,7 +258,7 @@ lifecycle operations.
 `
 
 const transitMountPathFlagHelp = `
-_PATH_ - Transit engine mount path within ordinary tenant and system namespaces.
+_PATH_ - Transit engine mount path within tenant namespaces.
 `
 
 const lifecycleMountPathFlagHelp = `

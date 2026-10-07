@@ -41,7 +41,6 @@ const (
 //go:generate mockgen -destination=vault_lifecycle_mock.go -package=vault . LifecycleClient
 type LifecycleClient interface {
 	// EnsureTenantNamespace creates a tenant namespace with KV v2, Transit, JWT auth, policy, and role.
-	// The shared namespace receives KV v2 only.
 	// Each step is idempotent — "already exists" errors are tolerated.
 	EnsureTenantNamespace(ctx context.Context, tenantName string) error
 
