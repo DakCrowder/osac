@@ -142,13 +142,13 @@ var _ = Describe("Finalizer Management", func() {
 
 		added := task.addFinalizer()
 		Expect(added).To(BeTrue())
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should not add finalizer if already present", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 			}.Build(),
 		}.Build()
 
@@ -158,7 +158,7 @@ var _ = Describe("Finalizer Management", func() {
 
 		added := task.addFinalizer()
 		Expect(added).To(BeFalse())
-		Expect(tenant.GetMetadata().GetFinalizers()).To(HaveLen(1))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(HaveLen(2))
 	})
 
 	It("should return immediately after adding finalizer", func() {
@@ -175,7 +175,7 @@ var _ = Describe("Finalizer Management", func() {
 		err := task.update(context.Background())
 		Expect(err).ToNot(HaveOccurred())
 
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 		Expect(tenant.HasStatus()).To(BeFalse())
 	})
 })
@@ -254,7 +254,7 @@ var _ = Describe("IDP Sync", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -312,7 +312,7 @@ var _ = Describe("IDP Sync", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -354,7 +354,7 @@ var _ = Describe("IDP Sync", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 		}.Build()
@@ -383,7 +383,7 @@ var _ = Describe("IDP Sync", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 		}.Build()
@@ -407,7 +407,7 @@ var _ = Describe("IDP Sync", func() {
 			Id: "org-shared",
 			Metadata: privatev1.Metadata_builder{
 				Name:       auth.SharedTenant,
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -455,7 +455,7 @@ var _ = Describe("IDP Sync", func() {
 			Id: "org-system",
 			Metadata: privatev1.Metadata_builder{
 				Name:       auth.SystemTenant,
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -503,7 +503,7 @@ var _ = Describe("IDP Sync", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -534,7 +534,8 @@ var _ = Describe("IDP Sync", func() {
 			Metadata: privatev1.Metadata_builder{
 				Name: "domain-org",
 				Finalizers: []string{
-					finalizers.Controller,
+					finalizers.TenantLifecycle,
+					finalizers.TenantOnboarding,
 				},
 				Tenant: "tenant-1",
 			}.Build(),
@@ -595,7 +596,8 @@ var _ = Describe("IDP Sync", func() {
 			Metadata: privatev1.Metadata_builder{
 				Name: "update-org",
 				Finalizers: []string{
-					finalizers.Controller,
+					finalizers.TenantLifecycle,
+					finalizers.TenantOnboarding,
 				},
 				Tenant: "tenant-1",
 			}.Build(),
@@ -694,7 +696,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -741,7 +743,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -794,7 +796,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -832,7 +834,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -897,7 +899,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -947,7 +949,7 @@ var _ = Describe("Break-glass credentials secret resolution", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "test-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1051,7 +1053,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1078,7 +1080,7 @@ var _ = Describe("Deletion", func() {
 
 		err := task.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should delete IDP tenant by metadata name when not synced", func() {
@@ -1087,7 +1089,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1112,7 +1114,7 @@ var _ = Describe("Deletion", func() {
 
 		err := task.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should delete IDP tenant by metadata name when idp_tenant_name is empty", func() {
@@ -1121,7 +1123,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1147,7 +1149,7 @@ var _ = Describe("Deletion", func() {
 
 		err := task.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should delete the break-glass secret before waiting for remaining projects", func() {
@@ -1156,7 +1158,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -1205,7 +1207,7 @@ var _ = Describe("Deletion", func() {
 		Expect(err.Error()).To(ContainSubstring("project(s) pending deletion"))
 		Expect(deleted).To(BeTrue())
 		Expect(tenant.GetSpec().GetBreakGlassCredentialsSecret()).To(BeNil())
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should clear the break-glass secret ref so finalizer removal can persist", func() {
@@ -1214,7 +1216,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -1262,7 +1264,7 @@ var _ = Describe("Deletion", func() {
 		err := task.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tenant.GetSpec().GetBreakGlassCredentialsSecret()).To(BeNil())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should return error on IDP deletion failure and keep finalizer", func() {
@@ -1271,7 +1273,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1300,7 +1302,7 @@ var _ = Describe("Deletion", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to delete IDP tenant"))
 		Expect(err.Error()).To(ContainSubstring("IDP connection timeout"))
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should block deletion when projects remain", func() {
@@ -1309,7 +1311,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1338,7 +1340,7 @@ var _ = Describe("Deletion", func() {
 		err := task.delete(ctx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("project(s) pending deletion"))
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should return error when project query fails during deletion", func() {
@@ -1347,7 +1349,7 @@ var _ = Describe("Deletion", func() {
 			Id: "org-123",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: deletionTimestamp,
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1374,13 +1376,13 @@ var _ = Describe("Deletion", func() {
 		err := task.delete(ctx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to query remaining projects"))
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should remove finalizer when called", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
-				Finalizers: []string{finalizers.Controller, "other-finalizer"},
+				Finalizers: []string{finalizers.TenantLifecycle, "other-finalizer"},
 			}.Build(),
 		}.Build()
 
@@ -1389,7 +1391,7 @@ var _ = Describe("Deletion", func() {
 		}
 
 		task.removeFinalizer()
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement("other-finalizer"))
 	})
 
@@ -1445,7 +1447,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 			Id: "org-root-proj",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1484,7 +1486,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("should skip root project that already has a deletion timestamp", func() {
@@ -1492,7 +1494,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 			Id: "org-root-deleting",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1533,7 +1535,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 			Id: "org-root-err",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1557,7 +1559,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 			Id: "org-root-del-err",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1596,7 +1598,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 			Id: "org-root-notfound",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "test-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1635,7 +1637,7 @@ var _ = Describe("Root project deletion during tenant deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 })
 
@@ -1657,7 +1659,7 @@ var _ = Describe("Skip Reconciliation", func() {
 
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Spec: privatev1.TenantSpec_builder{
@@ -1693,7 +1695,7 @@ var _ = Describe("Skip Reconciliation", func() {
 		msg := "Previous sync failed"
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -1739,7 +1741,7 @@ var _ = Describe("Default networking readiness", func() {
 			Metadata: privatev1.Metadata_builder{
 				Name:       name,
 				Tenant:     name,
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
 				State:         privatev1.TenantState_TENANT_STATE_SYNCED,
@@ -1790,7 +1792,7 @@ var _ = Describe("Default networking readiness", func() {
 			Metadata: privatev1.Metadata_builder{
 				Name:       "pending-tenant",
 				Tenant:     "pending-tenant",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
 				State: privatev1.TenantState_TENANT_STATE_PENDING,
@@ -2072,7 +2074,7 @@ var _ = Describe("Default networking readiness", func() {
 			Metadata: privatev1.Metadata_builder{
 				Name:              "deleting-tenant",
 				Tenant:            "deleting-tenant",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2136,7 +2138,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 			Id: "org-already",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "already-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2174,7 +2176,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 			Id: "org-no-vault",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "no-vault-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2206,7 +2208,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 			Id: "org-retry",
 			Metadata: privatev1.Metadata_builder{
 				Name:       "retry-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2243,7 +2245,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 		tenant := privatev1.Tenant_builder{
 			Metadata: privatev1.Metadata_builder{
 				Name:       "failed-org",
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2271,7 +2273,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 			Id: "org-shared",
 			Metadata: privatev1.Metadata_builder{
 				Name:       auth.SharedTenant,
-				Finalizers: []string{finalizers.Controller},
+				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2334,7 +2336,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-vault-del",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "vault-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2359,7 +2361,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("blocks deletion when vault namespace deletion fails", func() {
@@ -2374,7 +2376,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-vault-fail",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "vault-fail-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2396,7 +2398,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		err := t.delete(ctx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to delete vault namespace"))
-		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).To(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("performs idempotent vault deletion even when namespace was never provisioned", func() {
@@ -2411,7 +2413,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-no-vault-ns",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "no-vault-ns-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2436,7 +2438,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("skips vault deletion when vault lifecycle is nil", func() {
@@ -2450,7 +2452,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-nil-vault",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "nil-vault-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2471,7 +2473,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("deletes vault namespace when idp_tenant_name is empty", func() {
@@ -2486,7 +2488,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-vault-only",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "vault-only-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2510,7 +2512,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 
 	It("cleans up vault namespace when deleting non-SYNCED tenant", func() {
@@ -2525,7 +2527,7 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 			Id: "org-failed-vault",
 			Metadata: privatev1.Metadata_builder{
 				Name:              "failed-org",
-				Finalizers:        []string{finalizers.Controller},
+				Finalizers:        []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				DeletionTimestamp: timestamppb.Now(),
 			}.Build(),
 			Status: privatev1.TenantStatus_builder{
@@ -2549,6 +2551,6 @@ var _ = Describe("Vault namespace cleanup during deletion", func() {
 		t := &task{r: reconciler, tenant: tenant}
 		err := t.delete(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.Controller))
+		Expect(tenant.GetMetadata().GetFinalizers()).ToNot(ContainElement(finalizers.TenantLifecycle))
 	})
 })

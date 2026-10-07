@@ -169,7 +169,9 @@ func (r *function) Run(ctx context.Context, tenant *privatev1.Tenant) error {
 	}
 
 	var reconcileErr error
-	if tenant.HasMetadata() && tenant.GetMetadata().HasDeletionTimestamp() {
+	if finalizers.PrepareTenant(tenant) {
+		// Persist both barriers before doing any external work.
+	} else if tenant.HasMetadata() && tenant.GetMetadata().HasDeletionTimestamp() {
 		if err := task.delete(ctx); err != nil {
 			return err
 		}
@@ -462,16 +464,7 @@ func (t *task) validateTenant() error {
 // addFinalizer adds the controller finalizer to the tenant if not already present.
 // Returns true if the finalizer was added (indicating the update should be saved immediately).
 func (t *task) addFinalizer() bool {
-	if !t.tenant.HasMetadata() {
-		t.tenant.SetMetadata(&privatev1.Metadata{})
-	}
-	list := t.tenant.GetMetadata().GetFinalizers()
-	if !slices.Contains(list, finalizers.Controller) {
-		list = append(list, finalizers.Controller)
-		t.tenant.GetMetadata().SetFinalizers(list)
-		return true
-	}
-	return false
+	return finalizers.PrepareTenant(t.tenant)
 }
 
 // removeFinalizer removes the controller finalizer from the tenant.
@@ -480,9 +473,9 @@ func (t *task) removeFinalizer() {
 		return
 	}
 	list := t.tenant.GetMetadata().GetFinalizers()
-	if slices.Contains(list, finalizers.Controller) {
+	if slices.Contains(list, finalizers.TenantLifecycle) {
 		list = slices.DeleteFunc(list, func(item string) bool {
-			return item == finalizers.Controller
+			return item == finalizers.TenantLifecycle
 		})
 		t.tenant.GetMetadata().SetFinalizers(list)
 	}
@@ -497,6 +490,10 @@ func (t *task) isBuiltin() bool {
 
 // delete performs the deletion cleanup for a tenant.
 func (t *task) delete(ctx context.Context) error {
+	if !slices.Contains(t.tenant.GetMetadata().GetFinalizers(), finalizers.TenantLifecycle) {
+		return nil
+	}
+
 	// Remove the break-glass secret first so its project FK does not block
 	// administrators from deleting the default project. Clear the spec ref
 	// afterwards so the follow-up Tenants/Update (finalizer removal) is not
