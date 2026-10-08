@@ -2331,7 +2331,7 @@ var _ = Describe("Vault namespace provisioning", func() {
 		tenant := privatev1.Tenant_builder{
 			Id: "org-shared",
 			Metadata: privatev1.Metadata_builder{
-				Name:       auth.SharedTenant,
+				Name:       tenantName,
 				Finalizers: []string{finalizers.TenantLifecycle, finalizers.TenantOnboarding},
 				Tenant:     "tenant-1",
 			}.Build(),
