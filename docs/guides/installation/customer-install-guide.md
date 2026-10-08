@@ -50,7 +50,7 @@ Keycloak and the `osac` realm in the `keycloak` namespace, and the operand
 custom resources (CRs) `HyperConverged`, `LVMCluster`, the MetalLB
 `IPAddressPool`, and the Kafka CR. The `configure-*` hooks wait for each
 remaining Operator CSV to reach `Succeeded` before applying its operand. For
-evaluation, this phase can also deploy bundled PostgreSQL database and OpenBao.
+testing, this phase can also deploy bundled PostgreSQL database and OpenBao.
 
 **Phase 2: `osac`.** Installs the platform into your namespace: the OSAC
 Operator and its CRDs, the Fulfillment Service with an Envoy sidecar, an AAP
@@ -199,9 +199,9 @@ Always required:
 
 Required for a production deployment:
 
-- **An external PostgreSQL 18 or later database.** The bundled PostgreSQL is a
-  single ephemeral pod that loses data on restart. For production, run your own
-  database and create the `osac-db-config` and `osac-db-client-cert` Secrets in
+- **An external PostgreSQL 18 or later database.** The bundled PostgreSQL is
+  for testing only and is not intended for production. For production, run
+  your own database and create the `osac-db-config` and `osac-db-client-cert` Secrets in
   the install namespace, and the `osac-db-metering-config` and
   `osac-db-metering-client-cert` Secrets when metering is enabled. For more
   information, see
@@ -556,7 +556,7 @@ subchart's own `values.yaml` file.
 | `metallb.enabled`, `metallb.addressCIDR` | schema | In the `osac` chart, creates an `IPAddressPool` and an `L2Advertisement`. Edit the pool after installation to match your network. | `false` and `192.168.40.0/24` |
 | `bundledVault.enabled`, `bundledVault.image`, `bundledVault.devRootToken` | schema | Ephemeral in-cluster OpenBao. For evaluation only. | `true` and `openbao:2.6.2` |
 | `hubAccess.enabled` | schema | Creates hub-access RBAC and registers the local cluster as its own hub. Single-cluster development only. | `false` |
-| `bundledPostgres.enabled` | schema | Ephemeral in-cluster PostgreSQL. For evaluation only. | `false` |
+| `bundledPostgres.enabled` | schema | Bundled PostgreSQL for testing only; not intended for production. | `false` |
 | `dbInit.host` | schema | Host that the `db-init` pre-installation hook connects to, to create the databases. Set it to your external PostgreSQL host for a production deployment. | `postgres.osac-infra.svc.cluster.local` |
 | `clusterVersions.enabled`, `clusterVersions.versions[]` | schema | OpenShift Container Platform release images offered to hosted clusters. Each entry has `version`, `image`, and an optional `default`. | `false` and `[]` |
 
@@ -1128,8 +1128,8 @@ Reapply the patch after any infrastructure reinstall that recreates this
 
 ### 9.2 Evaluation only
 
-- The bundled PostgreSQL database (`bundledPostgres.enabled: true`). It is
-  ephemeral and loses data on restart.
+- The bundled PostgreSQL database (`bundledPostgres.enabled: true`) is for
+  testing only and is not intended for production.
 - The bundled OpenBao secret store (`bundledVault.enabled: true`). It runs in
   development mode and loses data on restart.
 - `keycloak.devFixtures.enabled: true` and the default `admin` Keycloak
@@ -1254,7 +1254,7 @@ $ helm show chart oci://ghcr.io/osac-project/charts/osac --version 0.0.17
   `invalid PostgreSQL url`: create the `osac-db-config` and
   `osac-db-client-cert` Secrets before you install the `osac` chart (see
   [Section 4.1](#41-preparing-the-cluster)), or enable `bundledPostgres` for
-  evaluation.
+  testing.
 - `PostgreSQL Service ... has no ready endpoints`: the host in the database URL
   does not resolve to a running PostgreSQL database. Point `dbInit.host` and the
   URL at a reachable server.
@@ -1430,6 +1430,5 @@ with the correct `global.clusterDomain`.
 - **config-as-code** — The Ansible content that the `osac-aap-bootstrap` job
   loads into AAP. Its subscription manifest is stored in the
   `config-as-code-manifest-ig` Secret.
-- **Bundled compared with external** — Bundled PostgreSQL and OpenBao are
-  ephemeral in-cluster pods for evaluation. Production deployments use external
-  services.
+- **Bundled compared with external** — Bundled PostgreSQL is for testing, and
+  OpenBao is for evaluation. Production deployments use external services.

@@ -20,6 +20,17 @@
         }
       }
     },
+    "bundledPostgres": {
+      "type": "object",
+      "description": "Bundled PostgreSQL for dev/CI and testing only; not intended for production.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the bundled PostgreSQL instance.",
+          "default": false
+        }
+      }
+    },
     "bundledVault": {
       "type": "object",
       "description": "Bundled OpenBao (Vault-compatible) secret store for dev/CI environments. When enabled, deploys a single-replica OpenBao instance in dev mode with emptyDir storage.",

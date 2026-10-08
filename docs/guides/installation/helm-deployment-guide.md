@@ -174,7 +174,7 @@ and `osac-infra`. Keys a chart doesn't recognize are ignored.
 | `osacNamespace` | Namespace that the `osac` platform release uses. `osac-infra` stamps cross-namespace resources with it. Set it to your namespace. | `osac` |
 | `csiNamespace` | Namespace that the CSI driver subchart expects. | `osac-csi` |
 | `csiReleaseName` | Release name that the CSI driver subchart expects. | `osac` |
-| `bundledPostgres.enabled` | Deploys an ephemeral in-cluster PostgreSQL database. Set it to `false` for production. | `false` |
+| `bundledPostgres.enabled` | Deploys bundled PostgreSQL for development and CI. It is not intended for production. | `false` |
 | `bundledPostgres.database.name` | Bundled database name. | `service` |
 | `bundledPostgres.database.user` | Bundled database owner. | `service` |
 | `bundledVault.enabled` | Deploys an ephemeral in-cluster OpenBao secret store. Set it to `false` for production and configure external Vault in the `osac` values file; see the [secrets management configuration guide](secrets-management-configuration.md). | `true` |
@@ -258,8 +258,11 @@ Disable these for any real deployment.
 
 | Value | Default | What it does |
 |-------|---------|-------------|
-| `bundledPostgres.enabled` | `false` | Deploys a single-pod ephemeral PostgreSQL. Uses `fsync=off` and `emptyDir` — data lost on restart. Not for production. |
+| `bundledPostgres.enabled` | `false` | Deploys bundled PostgreSQL for development and CI. It is not intended for production. |
 | `bundledVault.enabled` | `true` | Deploys a single-pod ephemeral OpenBao secret store in the `osac-infra` namespace. Dev mode — data is lost on restart. Set to `false` for production and follow the [secrets management configuration guide](secrets-management-configuration.md). |
+
+The upgrade does not migrate data from the previous bundled PostgreSQL instance.
+Back up any data you need before upgrading.
 
 ### Instance chart (`osac`) values
 
