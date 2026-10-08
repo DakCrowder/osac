@@ -1028,6 +1028,8 @@ func (t *FilterTranslator) translateSelectThisMdField(fieldName string,
 			result.kind = filterTranslatorStringKind
 			result.precedence = filterTranslatorMaxPrecedence
 		}
+	case "display_name", "description":
+		return t.translateSelectJsonField("data -> 'metadata'", t.thisDesc.Fields().ByName("metadata").Message(), fieldName, testOnly)
 	case "labels":
 		if testOnly {
 			result.sql = "true"

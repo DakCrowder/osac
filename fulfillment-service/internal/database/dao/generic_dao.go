@@ -39,13 +39,14 @@ type Object interface {
 
 // GenericDAOBuilder is a builder for creating generic data access objects.
 type GenericDAOBuilder[O Object] struct {
-	logger            *slog.Logger
-	table             string
-	defaultLimit      int32
-	maxLimit          int32
-	tenancyLogic      auth.TenancyLogic
-	metricsRegisterer prometheus.Registerer
-	filterDesc        protoreflect.MessageDescriptor
+	persistDescriptiveMetadata bool
+	logger                     *slog.Logger
+	table                      string
+	defaultLimit               int32
+	maxLimit                   int32
+	tenancyLogic               auth.TenancyLogic
+	metricsRegisterer          prometheus.Registerer
+	filterDesc                 protoreflect.MessageDescriptor
 }
 
 // GenericDAO provides generic data access operations for protocol buffers messages. It assumes that objects will be
@@ -187,6 +188,13 @@ func (b *GenericDAOBuilder[O]) SetFilterDesc(value protoreflect.MessageDescripto
 	return b
 }
 
+// SetPersistDescriptiveMetadata stores display name and description in the JSON data
+// alongside resource fields. Identity and ownership metadata remain separate columns.
+func (b *GenericDAOBuilder[O]) SetPersistDescriptiveMetadata(value bool) *GenericDAOBuilder[O] {
+	b.persistDescriptiveMetadata = value
+	return b
+}
+
 // Build creates a new generic DAO using the configuration stored in the builder.
 func (b *GenericDAOBuilder[O]) Build() (result *GenericDAO[O], err error) {
 	// Check parameters:
@@ -246,16 +254,21 @@ func (b *GenericDAOBuilder[O]) Build() (result *GenericDAO[O], err error) {
 	// Create the template that we will clone when we need to create a new metadata object:
 	metadataTemplate := objectTemplate.NewField(metadataField).Message()
 
-	// Create the JSON encoder. We need this special encoder in order to ignore the 'id' and 'metadata' fields
-	// because we save those in separate database columns and not in the JSON document where we save everything
-	// else.
-	jsonEncoder, err := json.NewEncoder().
-		SetLogger(b.logger).
-		AddIgnoredFields(
-			idField.FullName(),
-			metadataField.FullName(),
-		).
-		Build()
+	// Column-backed metadata is excluded from JSON. ManagedKeys additionally preserves
+	// display name and description, which have no corresponding table columns.
+	ignored := []any{idField.FullName()}
+	if b.persistDescriptiveMetadata {
+		fields := metadataField.Message().Fields()
+		for i := range fields.Len() {
+			field := fields.Get(i)
+			if field.Name() != "display_name" && field.Name() != "description" {
+				ignored = append(ignored, field.FullName())
+			}
+		}
+	} else {
+		ignored = append(ignored, metadataField.FullName())
+	}
+	jsonEncoder, err := json.NewEncoder().SetLogger(b.logger).AddIgnoredFields(ignored...).Build()
 	if err != nil {
 		err = fmt.Errorf("failed to create JSON encoder: %w", err)
 		return

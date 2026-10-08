@@ -1127,6 +1127,10 @@ func (p *EventPublisher) convertChangeData(field protoreflect.FieldDescriptor, r
 		err = fmt.Errorf("payload type '%T' does not support identity fields", object)
 		return
 	}
+	if descriptive := typed.GetMetadata(); descriptive != nil {
+		metadata.SetDisplayName(descriptive.GetDisplayName())
+		metadata.SetDescription(descriptive.GetDescription())
+	}
 	typed.SetId(data.ID)
 	typed.SetMetadata(metadata)
 	result = typed

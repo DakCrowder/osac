@@ -47,15 +47,16 @@ type PrepareCandidateFunc[O dao.Object] func(ctx context.Context, current, candi
 
 // GenericServerBuilder contains the data and logic needed to create new generic servers.
 type GenericServerBuilder[O dao.Object] struct {
-	logger            *slog.Logger
-	service           string
-	table             string
-	ignoredFields     []any
-	attributionLogic  auth.AttributionLogic
-	tenancyLogic      auth.TenancyLogic
-	allowedTenants    collections.Set[string]
-	metricsRegisterer prometheus.Registerer
-	filterDesc        protoreflect.MessageDescriptor
+	persistDescriptiveMetadata bool
+	logger                     *slog.Logger
+	service                    string
+	table                      string
+	ignoredFields              []any
+	attributionLogic           auth.AttributionLogic
+	tenancyLogic               auth.TenancyLogic
+	allowedTenants             collections.Set[string]
+	metricsRegisterer          prometheus.Registerer
+	filterDesc                 protoreflect.MessageDescriptor
 }
 
 // GenericServer is a gRPC server that knows how to implement the List, Get, Create, Update and Delete operators for
@@ -195,6 +196,12 @@ func (b *GenericServerBuilder[O]) SetFilterDesc(value protoreflect.MessageDescri
 	return b
 }
 
+// SetPersistDescriptiveMetadata preserves non-column descriptive metadata in the DAO.
+func (b *GenericServerBuilder[O]) SetPersistDescriptiveMetadata(value bool) *GenericServerBuilder[O] {
+	b.persistDescriptiveMetadata = value
+	return b
+}
+
 // Build uses the configuration stored in the builder to create and configure a new generic server.
 func (b *GenericServerBuilder[O]) Build() (result *GenericServer[O], err error) {
 	// Check parameters:
@@ -247,6 +254,7 @@ func (b *GenericServerBuilder[O]) Build() (result *GenericServer[O], err error) 
 	// Create the DAO:
 	daoBuilder := dao.NewGenericDAO[O]()
 	daoBuilder.SetLogger(b.logger)
+	daoBuilder.SetPersistDescriptiveMetadata(b.persistDescriptiveMetadata)
 	if b.table != "" {
 		daoBuilder.SetTableName(b.table)
 	}
@@ -361,6 +369,11 @@ func (b *GenericServerBuilder[O]) findRequestAndResponse(service protoreflect.Se
 }
 
 func (s *GenericServer[O]) List(ctx context.Context, request any, response any) error {
+	return s.ListWithOrder(ctx, request, response, "")
+}
+
+// ListWithOrder implements List with an explicit, schema-validated ordering.
+func (s *GenericServer[O]) ListWithOrder(ctx context.Context, request any, response any, order string) error {
 	// Extract the request message:
 	type requestIface interface {
 		GetOffset() int32
@@ -373,6 +386,7 @@ func (s *GenericServer[O]) List(ctx context.Context, request any, response any) 
 	// List the objects:
 	listRequest := s.dao.List().
 		SetFilter(requestMsg.GetFilter()).
+		SetOrder(order).
 		SetOffset(requestMsg.GetOffset())
 	if requestMsg.HasLimit() {
 		listRequest.SetLimit(requestMsg.GetLimit())

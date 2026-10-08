@@ -34,6 +34,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/kafka"
 	"github.com/osac-project/osac/fulfillment-service/internal/uuid"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
+	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
 
 var _ = Describe("Event publisher", Ordered, func() {
@@ -452,6 +453,37 @@ var _ = Describe("Event publisher", Ordered, func() {
 			Expect(events[0].event.GetProject().GetId()).To(Equal("p-signal"))
 			Expect(events[0].event.GetProject().GetMetadata().GetVersion()).To(Equal(int32(1)))
 			Expect(events[0].event.GetProject().GetSpec().GetTitle()).To(Equal("Signaled"))
+		})
+
+		It("Publishes managed key metadata and maps a redacted public payload", func() {
+			tenant := "managed-key-" + uuid.New()
+			topic := DefaultEventTopicPrefix + tenant
+			insertChange("managed_keys", tenant, "key-1", fmt.Sprintf(`{
+				"id":"key-1", "name":"key-1", "tenant":%q,
+				"data":{"metadata":{"display_name":"Friendly","description":"Key description"},
+				"usage":"MANAGED_KEY_USAGE_ENCRYPT_DECRYPT", "state":"MANAGED_KEY_STATE_ACTIVE",
+				"backend":"KEY_BACKEND_VAULT_TRANSIT", "versions":[{"generation":"1",
+				"creation_timestamp":"2026-01-01T00:00:00Z", "backend_object_id":"private-object",
+				"backend_version_id":"private-version"}]}
+			}`, tenant))
+			cancel, done := startPublisher(pub)
+			defer stopPublisher(cancel, done)
+			events := collectKafkaEvents(client, topic, 1)
+			key := events[0].event.GetManagedKey()
+			Expect(key.GetId()).To(Equal("key-1"))
+			Expect(key.GetMetadata().GetTenant()).To(Equal(tenant))
+			Expect(key.GetMetadata().GetDisplayName()).To(Equal("Friendly"))
+			Expect(key.GetMetadata().GetDescription()).To(Equal("Key description"))
+			Expect(key.GetVersions()[0].GetBackendObjectId()).To(Equal("private-object"))
+			mapper, err := NewGenericMapper[*privatev1.Event, *publicv1.Event]().SetLogger(logger).Build()
+			Expect(err).ToNot(HaveOccurred())
+			public := &publicv1.Event{}
+			Expect(mapper.Copy(ctx, events[0].event, public)).To(Succeed())
+			encoded, err := protojson.Marshal(public)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(encoded)).ToNot(ContainSubstring("private-object"))
+			Expect(string(encoded)).ToNot(ContainSubstring("private-version"))
+			Expect(public.GetManagedKey().GetVersions()[0].GetGeneration()).To(Equal(uint64(1)))
 		})
 
 		It("Redacts secret data before publishing", func() {

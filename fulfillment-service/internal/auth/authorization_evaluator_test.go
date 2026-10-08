@@ -111,6 +111,33 @@ var _ = Describe("OPA Authorization Evaluator", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		DescribeTable("authorizes ManagedKeys CRUD only for tenant admins and existing administrators",
+			func(role, method string, allowed bool) {
+				identity := &AuthContext{
+					Username: "key-user", AuthMethod: "jwt", Organization: []any{"acme-corp"}, Tenant: "acme-corp",
+					RealmAccess: map[string]any{"roles": []any{role}},
+				}
+				decision, err := evaluator.Evaluate(context.Background(), identity, "/osac.public.v1.ManagedKeys/"+method)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(decision.Allowed).To(Equal(allowed))
+			},
+			Entry("tenant-admin Create", "tenant-admin", "Create", true),
+			Entry("tenant-admin Get", "tenant-admin", "Get", true),
+			Entry("tenant-admin List", "tenant-admin", "List", true),
+			Entry("tenant-admin Update", "tenant-admin", "Update", true),
+			Entry("tenant-admin Delete", "tenant-admin", "Delete", true),
+			Entry("user Create", "user", "Create", false),
+			Entry("user Get", "user", "Get", false),
+			Entry("user List", "user", "List", false),
+			Entry("user Update", "user", "Update", false),
+			Entry("user Delete", "user", "Delete", false),
+			Entry("IdP manager Create", "tenant-idp-manager", "Create", false),
+			Entry("IdP manager Get", "tenant-idp-manager", "Get", false),
+			Entry("IdP manager List", "tenant-idp-manager", "List", false),
+			Entry("IdP manager Update", "tenant-idp-manager", "Update", false),
+			Entry("IdP manager Delete", "tenant-idp-manager", "Delete", false),
+		)
+
 		Context("With Kubernetes service account", func() {
 			It("Allows admin service account with all tenants", func(ctx context.Context) {
 				authContext := &AuthContext{

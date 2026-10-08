@@ -331,6 +331,16 @@ func (r *request[O]) setMetadata(object O, metadata metadataIface) {
 	objectReflect := object.ProtoReflect()
 	if metadata != nil {
 		metadataReflect := metadata.ProtoReflect()
+		// Preserve descriptive fields read from JSON while taking identity and ownership
+		// exclusively from the authoritative database columns.
+		if existing := r.getMetadata(object); existing != nil {
+			for _, name := range []protoreflect.Name{"display_name", "description"} {
+				field := metadataReflect.Descriptor().Fields().ByName(name)
+				if field != nil {
+					metadataReflect.Set(field, existing.ProtoReflect().Get(field))
+				}
+			}
+		}
 		objectReflect.Set(r.dao.metadataField, protoreflect.ValueOfMessage(metadataReflect))
 	} else {
 		objectReflect.Clear(r.dao.metadataField)

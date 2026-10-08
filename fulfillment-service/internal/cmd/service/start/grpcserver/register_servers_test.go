@@ -26,10 +26,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	. "github.com/onsi/ginkgo/v2/dsl/core"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,6 +59,7 @@ import (
 	itesting "github.com/osac-project/osac/fulfillment-service/internal/testing"
 	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
+	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
 
 func TestRegisterServers(t *testing.T) {
@@ -531,6 +536,7 @@ var _ = Describe("Conditional service registration", func() {
 		"osac.public.v1.Projects",
 		"osac.public.v1.Users",
 		"osac.public.v1.Secrets",
+		"osac.public.v1.ManagedKeys",
 		"osac.public.v1.StorageTiers",
 		"osac.private.v1.HostTypes",
 		"osac.private.v1.Hubs",
@@ -551,6 +557,7 @@ var _ = Describe("Conditional service registration", func() {
 		"osac.private.v1.Users",
 		"osac.private.v1.StorageBackends",
 		"osac.private.v1.Secrets",
+		"osac.private.v1.ManagedKeys",
 		"osac.private.v1.StorageTiers",
 	}
 
@@ -620,5 +627,33 @@ var _ = Describe("Conditional service registration", func() {
 		_, rs, err := registerWithFlags(&services.Flags{CaaS: true, VMaaS: true, BMaaS: false, MaaS: false})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(rs.PrivateComputeInstancesServer).ToNot(BeNil())
+	})
+})
+
+var _ = Describe("ManagedKeys registered transport", func() {
+	It("persists gRPC CRUD and forwards REST masks and optimistic locking", func() {
+		client := publicv1.NewManagedKeysClient(conn)
+		created, err := client.Create(ctx, publicv1.ManagedKeysCreateRequest_builder{Object: publicv1.ManagedKey_builder{Metadata: publicv1.Metadata_builder{Name: "transport-key", Tenant: auth.SystemTenant}.Build()}.Build()}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		key := created.GetObject()
+		DeferCleanup(func() {
+			_, err := client.Delete(ctx, publicv1.ManagedKeysDeleteRequest_builder{Id: key.GetId()}.Build())
+			Expect(err).ToNot(HaveOccurred())
+		})
+		mux := runtime.NewServeMux()
+		Expect(publicv1.RegisterManagedKeysHandler(ctx, mux, conn)).To(Succeed())
+		result := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/api/fulfillment/v1/managed_keys/"+key.GetId()+"?lock=true", strings.NewReader(`{"metadata":{"description":"through gRPC gateway","version":0}}`)).WithContext(ctx)
+		request.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(result, request)
+		Expect(result.Code).To(Equal(http.StatusOK), result.Body.String())
+		fetched, err := client.Get(ctx, publicv1.ManagedKeysGetRequest_builder{Id: key.GetId()}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(fetched.GetObject().GetMetadata().GetDescription()).To(Equal("through gRPC gateway"))
+		result = httptest.NewRecorder()
+		request = httptest.NewRequest(http.MethodPatch, "/api/fulfillment/v1/managed_keys/"+key.GetId()+"?lock=true", strings.NewReader(`{"metadata":{"description":"stale","version":0}}`)).WithContext(ctx)
+		request.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(result, request)
+		Expect(result.Code).To(Equal(http.StatusConflict), result.Body.String())
 	})
 })

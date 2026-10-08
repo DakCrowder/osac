@@ -71,6 +71,12 @@ It reuses the existing cluster and database. For a full suite run, use a fresh
 environment unless the user agrees to reuse the database. See `README.md` for
 prerequisites and host entries.
 
+ManagedKeys metadata coverage lives in `internal/servers/managed_keys_server_test.go`
+and uses real containerized PostgreSQL with mocked attribution/tenancy. Production
+gRPC registration, REST bindings, OPA authorization and Kafka event payloads have
+package-level coverage. This stage does not exercise Vault or deployed provider
+lifecycle/crypto workflows. See the linked integration guide for boundaries.
+
 The `it/` suite includes CLI workflows that exercise only Fulfillment Service
 APIs. Its harness builds the CLI from this checkout and runs it against the
 deployed service. Catalog Item API behavior, CLI creation, and the ClusterOrder

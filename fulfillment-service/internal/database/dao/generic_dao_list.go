@@ -16,8 +16,11 @@ package dao
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 )
@@ -26,6 +29,7 @@ import (
 type ListRequest[O Object] struct {
 	request[O]
 	filter   string
+	order    string
 	limit    int32
 	offset   int32
 	limitSet bool
@@ -34,6 +38,12 @@ type ListRequest[O Object] struct {
 // SetFilter sets the CEL expression that defines which objects should be returned.
 func (r *ListRequest[O]) SetFilter(value string) *ListRequest[O] {
 	r.filter = value
+	return r
+}
+
+// SetOrder sets comma-separated protobuf field paths with optional asc/desc directions.
+func (r *ListRequest[O]) SetOrder(value string) *ListRequest[O] {
+	r.order = value
 	return r
 }
 
@@ -98,7 +108,10 @@ func (r *ListRequest[O]) do(ctx context.Context) (response *ListResponse[O], err
 	}
 
 	// Calculate the order clause:
-	const order = "id"
+	order, err := r.translateOrder(ctx)
+	if err != nil {
+		return nil, &ErrValidation{Reason: err.Error()}
+	}
 
 	// Count the total number of results, disregarding the offset and the limit:
 	var buffer strings.Builder
@@ -296,4 +309,51 @@ func (d *GenericDAO[O]) List() *ListRequest[O] {
 			dao: d,
 		},
 	}
+}
+
+var orderFieldPath = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
+
+func (r *ListRequest[O]) translateOrder(ctx context.Context) (string, error) {
+	if strings.TrimSpace(r.order) == "" {
+		return "id", nil
+	}
+	clauses := []string{}
+	for _, term := range strings.Split(r.order, ",") {
+		parts := strings.Fields(term)
+		if len(parts) < 1 || len(parts) > 2 || !orderFieldPath.MatchString(parts[0]) {
+			return "", fmt.Errorf("invalid order term %q", term)
+		}
+		direction := "asc"
+		if len(parts) == 2 {
+			direction = strings.ToLower(parts[1])
+		}
+		if direction != "asc" && direction != "desc" {
+			return "", fmt.Errorf("invalid order direction %q", direction)
+		}
+		descriptor := r.dao.filterTranslator.thisDesc
+		path := strings.Split(parts[0], ".")
+		for i, name := range path {
+			field := descriptor.Fields().ByName(protoreflect.Name(name))
+			if field == nil || field.IsList() || field.IsMap() {
+				return "", fmt.Errorf("invalid order field %q", parts[0])
+			}
+			if i < len(path)-1 {
+				if field.Message() == nil {
+					return "", fmt.Errorf("invalid order field %q", parts[0])
+				}
+				descriptor = field.Message()
+			} else if field.Message() != nil && field.Message().FullName() != "google.protobuf.Timestamp" {
+				return "", fmt.Errorf("order field %q must be scalar", parts[0])
+			}
+		}
+		// Translation uses the same restricted descriptor as filtering. User input never
+		// enters SQL directly, including private fields on a public server.
+		expression, err := r.dao.filterTranslator.Translate(ctx, "this."+parts[0])
+		if err != nil {
+			return "", fmt.Errorf("invalid order field: %w", err)
+		}
+		clauses = append(clauses, expression+" "+direction)
+	}
+	clauses = append(clauses, "id")
+	return strings.Join(clauses, ", "), nil
 }

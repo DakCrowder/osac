@@ -854,6 +854,28 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 	}
 	privatev1.RegisterExternalIPAttachmentsServer(registrar, privateExternalIPAttachmentsServer)
 
+	publicManagedKeysServer, err := servers.NewManagedKeysServer().
+		SetLogger(deps.Logger).
+		SetAttributionLogic(deps.PublicAttributionLogic).
+		SetTenancyLogic(deps.TenancyLogic).
+		SetMetricsRegisterer(deps.MetricsRegisterer).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public managed keys server: %w", err)
+	}
+	publicv1.RegisterManagedKeysServer(registrar, publicManagedKeysServer)
+
+	privateManagedKeysServer, err := servers.NewPrivateManagedKeysServer().
+		SetLogger(deps.Logger).
+		SetAttributionLogic(deps.PrivateAttributionLogic).
+		SetTenancyLogic(deps.TenancyLogic).
+		SetMetricsRegisterer(deps.MetricsRegisterer).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create private managed keys server: %w", err)
+	}
+	privatev1.RegisterManagedKeysServer(registrar, privateManagedKeysServer)
+
 	// Create the NAT gateways server:
 	deps.Logger.InfoContext(ctx, "Creating NAT gateways server")
 	natGatewaysServer, err := servers.NewNATGatewaysServer().
