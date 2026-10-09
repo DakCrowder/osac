@@ -107,6 +107,18 @@ message ManagedKeysDeleteRequest {
 
 message ManagedKeysDeleteResponse {}
 
+// Request message for signaling a managed key.
+message ManagedKeysSignalRequest {
+  option (cleanapi.message).private = true;
+  // Unique identifier of the managed key to signal.
+  string id = 1;
+}
+
+// Response message for signaling a managed key.
+message ManagedKeysSignalResponse {
+  option (cleanapi.message).private = true;
+}
+
 // Service for managing logical keys and their metadata.
 service ManagedKeys {
   // Retrieves caller-visible managed keys in their tenants and projects.
@@ -151,5 +163,10 @@ service ManagedKeys {
   // Directly retained ciphertext is not tracked by OSAC and becomes permanently undecryptable.
   rpc Delete(ManagedKeysDeleteRequest) returns (ManagedKeysDeleteResponse) {
     option (google.api.http) = {delete: "/api/private/v1/managed_keys/{id}"};
+  }
+
+  // Indicates that something changed in the object or the system that may require reconciling the object.
+  rpc Signal(ManagedKeysSignalRequest) returns (ManagedKeysSignalResponse) {
+    option (cleanapi.method).private = true;
   }
 }

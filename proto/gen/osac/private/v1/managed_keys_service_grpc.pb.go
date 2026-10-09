@@ -37,6 +37,7 @@ const (
 	ManagedKeys_Create_FullMethodName = "/osac.private.v1.ManagedKeys/Create"
 	ManagedKeys_Update_FullMethodName = "/osac.private.v1.ManagedKeys/Update"
 	ManagedKeys_Delete_FullMethodName = "/osac.private.v1.ManagedKeys/Delete"
+	ManagedKeys_Signal_FullMethodName = "/osac.private.v1.ManagedKeys/Signal"
 )
 
 // ManagedKeysClient is the client API for ManagedKeys service.
@@ -63,6 +64,8 @@ type ManagedKeysClient interface {
 	// Accepts active or revoked keys. Success confirms backend deletion and database commit.
 	// Directly retained ciphertext is not tracked by OSAC and becomes permanently undecryptable.
 	Delete(ctx context.Context, in *ManagedKeysDeleteRequest, opts ...grpc.CallOption) (*ManagedKeysDeleteResponse, error)
+	// Indicates that something changed in the object or the system that may require reconciling the object.
+	Signal(ctx context.Context, in *ManagedKeysSignalRequest, opts ...grpc.CallOption) (*ManagedKeysSignalResponse, error)
 }
 
 type managedKeysClient struct {
@@ -123,6 +126,16 @@ func (c *managedKeysClient) Delete(ctx context.Context, in *ManagedKeysDeleteReq
 	return out, nil
 }
 
+func (c *managedKeysClient) Signal(ctx context.Context, in *ManagedKeysSignalRequest, opts ...grpc.CallOption) (*ManagedKeysSignalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ManagedKeysSignalResponse)
+	err := c.cc.Invoke(ctx, ManagedKeys_Signal_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagedKeysServer is the server API for ManagedKeys service.
 // All implementations must embed UnimplementedManagedKeysServer
 // for forward compatibility.
@@ -147,6 +160,8 @@ type ManagedKeysServer interface {
 	// Accepts active or revoked keys. Success confirms backend deletion and database commit.
 	// Directly retained ciphertext is not tracked by OSAC and becomes permanently undecryptable.
 	Delete(context.Context, *ManagedKeysDeleteRequest) (*ManagedKeysDeleteResponse, error)
+	// Indicates that something changed in the object or the system that may require reconciling the object.
+	Signal(context.Context, *ManagedKeysSignalRequest) (*ManagedKeysSignalResponse, error)
 	mustEmbedUnimplementedManagedKeysServer()
 }
 
@@ -171,6 +186,9 @@ func (UnimplementedManagedKeysServer) Update(context.Context, *ManagedKeysUpdate
 }
 func (UnimplementedManagedKeysServer) Delete(context.Context, *ManagedKeysDeleteRequest) (*ManagedKeysDeleteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedManagedKeysServer) Signal(context.Context, *ManagedKeysSignalRequest) (*ManagedKeysSignalResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Signal not implemented")
 }
 func (UnimplementedManagedKeysServer) mustEmbedUnimplementedManagedKeysServer() {}
 func (UnimplementedManagedKeysServer) testEmbeddedByValue()                     {}
@@ -283,6 +301,24 @@ func _ManagedKeys_Delete_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagedKeys_Signal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ManagedKeysSignalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagedKeysServer).Signal(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ManagedKeys_Signal_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagedKeysServer).Signal(ctx, req.(*ManagedKeysSignalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagedKeys_ServiceDesc is the grpc.ServiceDesc for ManagedKeys service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -309,6 +345,10 @@ var ManagedKeys_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _ManagedKeys_Delete_Handler,
+		},
+		{
+			MethodName: "Signal",
+			Handler:    _ManagedKeys_Signal_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
