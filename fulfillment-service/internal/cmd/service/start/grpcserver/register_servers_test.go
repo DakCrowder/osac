@@ -20,6 +20,8 @@ language governing permissions and limitations under the License.
 // Discovery is by field name only: a future field that exists on both sides under the same name but with a
 // different type (e.g. a private enum smuggled through a same-named public field) is not a case this file can
 // generate, since a self-comparison on that path compiles fine against the public descriptor too.
+// ManagedKey currently has only a proto contract: its discovered cases assert Unimplemented until OSAC-6018
+// adds the handlers. These assertions fail once List is registered, requiring the normal filter checks to be enabled.
 package grpcserver
 
 import (
@@ -394,7 +396,13 @@ var _ = Describe("Resource server filter oracle", func() {
 	})
 
 	for _, testCase := range cases {
-		It(fmt.Sprintf("Rejects a filter referencing the private-only field %q on %s", testCase.fieldPath, testCase.resourceName),
+		expectedCode := grpccodes.InvalidArgument
+		description := fmt.Sprintf("Rejects a filter referencing the private-only field %q on %s", testCase.fieldPath, testCase.resourceName)
+		if testCase.resourceName == "ManagedKey" {
+			expectedCode = grpccodes.Unimplemented
+			description = fmt.Sprintf("Keeps ManagedKeys unavailable for a filter referencing %q until handlers are implemented", testCase.fieldPath)
+		}
+		It(description,
 			func(ctx context.Context) {
 				request := newMessage(testCase.requestDesc)
 				filterExpr := fmt.Sprintf("this.%s != this.%s", testCase.fieldPath, testCase.fieldPath)
@@ -405,7 +413,7 @@ var _ = Describe("Resource server filter oracle", func() {
 				Expect(err).To(HaveOccurred())
 				status, ok := grpcstatus.FromError(err)
 				Expect(ok).To(BeTrue())
-				Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+				Expect(status.Code()).To(Equal(expectedCode))
 			},
 		)
 	}
@@ -417,7 +425,11 @@ var _ = Describe("Resource server filter oracle", func() {
 	// that precondition explicitly rather than letting a hypothetical future violation surface as a confusing
 	// InvalidArgument that reads like a filter-oracle regression.
 	for _, testCase := range dedupeByResource(cases) {
-		It(fmt.Sprintf("Accepts a valid filter referencing only public fields on %s", testCase.resourceName),
+		description := fmt.Sprintf("Accepts a valid filter referencing only public fields on %s", testCase.resourceName)
+		if testCase.resourceName == "ManagedKey" {
+			description = "Keeps ManagedKeys unavailable for a valid public filter until handlers are implemented"
+		}
+		It(description,
 			func(ctx context.Context) {
 				itemDesc := testCase.responseDesc.Fields().ByName("items").Message()
 				Expect(itemDesc.Fields().ByName("id")).ToNot(BeNil(),
@@ -428,7 +440,11 @@ var _ = Describe("Resource server filter oracle", func() {
 				response := newMessage(testCase.responseDesc)
 
 				err := conn.Invoke(ctx, testCase.methodPath, request, response)
-				Expect(err).ToNot(HaveOccurred())
+				if testCase.resourceName == "ManagedKey" {
+					Expect(grpcstatus.Code(err)).To(Equal(grpccodes.Unimplemented))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
 			},
 		)
 	}
