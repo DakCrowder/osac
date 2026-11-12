@@ -16,7 +16,6 @@ package servers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -147,7 +146,13 @@ func (s *PrivateRoleBindingsServer) Create(ctx context.Context,
 
 func (s *PrivateRoleBindingsServer) Update(ctx context.Context,
 	request *privatev1.RoleBindingsUpdateRequest) (response *privatev1.RoleBindingsUpdateResponse, err error) {
-	err = s.generic.UpdateWithCandidatePreparation(ctx, request, &response, s.validateRoleBinding)
+	prepare := func(ctx context.Context, current, candidate *privatev1.RoleBinding) error {
+		if !updateIncludesField(request.GetUpdateMask(), "spec") {
+			return nil
+		}
+		return s.validateRoleBinding(ctx, current, candidate)
+	}
+	err = s.generic.UpdateWithCandidatePreparation(ctx, request, &response, prepare)
 	return
 }
 
@@ -165,54 +170,23 @@ func (s *PrivateRoleBindingsServer) Signal(ctx context.Context,
 
 func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, candidate *privatev1.RoleBinding) error {
 	ref := candidate.GetSpec().GetRole()
-	key := ref.GetId()
-	if key == "" {
-		key = ref.GetName()
-	}
 	serviceAccountRefs := candidate.GetSpec().GetServiceAccounts()
-
-	// The controller resolves either selector as an ID first, then as a name.
-	if key == "" {
+	if ref.GetId() == "" && ref.GetName() == "" {
 		if len(serviceAccountRefs) > 0 {
 			return status.Error(codes.InvalidArgument, "a role is required for service account subjects")
 		}
+		if ref.GetTenant() != "" || ref.GetProject() != "" || ref.GetShared() {
+			return status.Error(codes.InvalidArgument, "a role reference must specify an ID or name")
+		}
 		return nil
 	}
-	roleResponse, err := s.roles.Get().SetId(key).Do(ctx)
-	var role *privatev1.Role
+	role, err := s.resolveRoleReference(ctx, candidate)
 	if err != nil {
-		// Preserve the existing behavior for unresolved role references.
-		if _, ok := errors.AsType[*dao.ErrNotFound](err); !ok {
-			return err
-		}
-		if len(serviceAccountRefs) == 0 {
-			return nil
-		}
-		if ref.GetId() != "" {
-			return status.Error(codes.InvalidArgument, "service account role reference ID was not found")
-		}
-		// RoleBinding references may use a predefined role name instead of its ID.
-		if !serviceaccounts.IsAssignableRole(ref.GetName()) {
-			return status.Error(codes.InvalidArgument, "service accounts may only receive predefined OSAC roles")
-		}
-		filter := fmt.Sprintf("this.metadata.name == %q", ref.GetName())
-		listResponse, listErr := s.roles.List().SetFilter(filter).SetLimit(2).Do(ctx)
-		if listErr != nil {
-			return listErr
-		}
-		if listResponse.GetSize() != 1 {
-			return status.Error(codes.InvalidArgument, "service account role reference was not found")
-		}
-		role = listResponse.GetItems()[0]
-	} else {
-		role = roleResponse.GetObject()
+		return err
 	}
 	roleName := role.GetMetadata().GetName()
 	roleTenant := role.GetMetadata().GetTenant()
 	bindingTenant := candidate.GetMetadata().GetTenant()
-	if roleTenant == auth.SystemTenant && (roleName != "osac-csi-driver" || bindingTenant != auth.SystemTenant) {
-		return status.Error(codes.InvalidArgument, "system Roles may only be bound in the system tenant")
-	}
 	if len(serviceAccountRefs) == 0 {
 		return nil
 	}
@@ -233,7 +207,7 @@ func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, 
 			return status.Error(codes.InvalidArgument, "service account references must be unique")
 		}
 		seen[id] = struct{}{}
-		if err = serviceaccounts.ValidateRoleBindingSubject(ctx, id, tenant); err != nil {
+		if err := serviceaccounts.ValidateRoleBindingSubject(ctx, id, tenant); err != nil {
 			if errors.Is(err, serviceaccounts.ErrRoleBindingSubjectNotActive) {
 				return status.Error(codes.InvalidArgument, "service account must be active and provisioned in the RoleBinding tenant")
 			}
@@ -241,4 +215,24 @@ func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, 
 		}
 	}
 	return nil
+}
+
+func (s *PrivateRoleBindingsServer) resolveRoleReference(ctx context.Context,
+	candidate *privatev1.RoleBinding) (*privatev1.Role, error) {
+	ref := candidate.GetSpec().GetRole()
+	role, err := resolveAndCanonicalizeReference(ctx, s.roles, candidate.GetMetadata(), ref,
+		"role", codes.InvalidArgument)
+	if err != nil {
+		return nil, err
+	}
+	roleName := role.GetMetadata().GetName()
+	roleTenant := role.GetMetadata().GetTenant()
+	bindingTenant := candidate.GetMetadata().GetTenant()
+	if roleTenant != bindingTenant && roleTenant != auth.SharedTenant {
+		return nil, status.Error(codes.InvalidArgument, "role reference does not identify an allowed Role")
+	}
+	if roleTenant == auth.SystemTenant && (roleName != "osac-csi-driver" || bindingTenant != auth.SystemTenant) {
+		return nil, status.Error(codes.InvalidArgument, "system Roles may only be bound in the system tenant")
+	}
+	return role, nil
 }

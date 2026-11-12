@@ -16,6 +16,7 @@ package servers
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
@@ -29,11 +30,23 @@ func refIDs[T interface{ GetId() string }](refs []T) []string {
 	return ids
 }
 
+func seedRoleBindingTestRoles() {
+	roles, err := dao.NewGenericDAO[*privatev1.Role]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
+	Expect(err).ToNot(HaveOccurred())
+	for _, id := range []string{"admin-role-id", "role-a", "role-b", "role-1", "role-2", "my-role-id"} {
+		_, err := roles.Create().SetObject(privatev1.Role_builder{
+			Id: id, Metadata: privatev1.Metadata_builder{Name: id, Tenant: testTenant}.Build(),
+		}.Build()).Do(ctx)
+		Expect(err).ToNot(HaveOccurred())
+	}
+}
+
 var _ = Describe("Private role bindings server", func() {
 	var roleBindingsServer *PrivateRoleBindingsServer
 
 	BeforeEach(func() {
 		var err error
+		seedRoleBindingTestRoles()
 
 		roleBindingsServer, err = NewPrivateRoleBindingsServer().
 			SetLogger(logger).
@@ -96,6 +109,64 @@ var _ = Describe("Private role bindings server", func() {
 			Expect(response.GetObject().GetMetadata().GetName()).To(Equal("admin-binding"))
 			Expect(response.GetObject().GetSpec().GetRole().GetId()).To(Equal("admin-role-id"))
 			Expect(refIDs(response.GetObject().GetSpec().GetUsers())).To(ConsistOf("admin-user-1", "admin-user-2"))
+		})
+
+		It("creates and updates human bindings without a Role", func() {
+			for _, tc := range []struct {
+				name string
+				role *privatev1.RoleReference
+			}{
+				{name: "roleless-nil"},
+				{name: "roleless-empty", role: privatev1.RoleReference_builder{}.Build()},
+			} {
+				created, err := roleBindingsServer.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
+					Object: privatev1.RoleBinding_builder{
+						Metadata: privatev1.Metadata_builder{Name: tc.name}.Build(),
+						Spec: privatev1.RoleBindingSpec_builder{
+							Role: tc.role,
+							Users: []*privatev1.UserReference{
+								privatev1.UserReference_builder{Id: "human-user"}.Build(),
+							},
+						}.Build(),
+					}.Build(),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred(), tc.name)
+				Expect(created.GetObject().GetSpec().GetRole().GetId()).To(BeEmpty())
+
+				withRole, err := roleBindingsServer.Update(ctx, privatev1.RoleBindingsUpdateRequest_builder{
+					Object: privatev1.RoleBinding_builder{Id: created.GetObject().GetId(),
+						Spec: privatev1.RoleBindingSpec_builder{
+							Role: privatev1.RoleReference_builder{Id: "role-a"}.Build(),
+						}.Build(),
+					}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.role"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred(), tc.name)
+				Expect(withRole.GetObject().GetSpec().GetRole().GetId()).To(Equal("role-a"))
+
+				cleared, err := roleBindingsServer.Update(ctx, privatev1.RoleBindingsUpdateRequest_builder{
+					Object:     privatev1.RoleBinding_builder{Id: created.GetObject().GetId()}.Build(),
+					UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.role"}},
+				}.Build())
+				Expect(err).ToNot(HaveOccurred(), tc.name)
+				Expect(cleared.GetObject().GetSpec().GetRole()).To(BeNil())
+				Expect(refIDs(cleared.GetObject().GetSpec().GetUsers())).To(ConsistOf("human-user"))
+			}
+		})
+
+		It("rejects service-account subjects without a Role", func() {
+			_, err := roleBindingsServer.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
+				Object: privatev1.RoleBinding_builder{
+					Metadata: privatev1.Metadata_builder{Name: "roleless-service-account"}.Build(),
+					Spec: privatev1.RoleBindingSpec_builder{
+						ServiceAccounts: []*privatev1.ServiceAccountReference{
+							privatev1.ServiceAccountReference_builder{Id: "service-account"}.Build(),
+						},
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("a role is required for service account subjects"))
 		})
 
 		It("Lists role bindings", func() {
