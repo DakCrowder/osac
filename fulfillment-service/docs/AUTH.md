@@ -174,12 +174,6 @@ Regular authenticated users receive tenant user permissions by default; no RoleB
 for those permissions.
 
 Assign these roles to users by creating a RoleBinding for them.
-An unqualified Role name in a tenant RoleBinding resolves in that tenant first, then in `shared`.
-Role names are unique across all tenants, so the same name cannot exist in both scopes at once.
-An explicit Role tenant or ID selects only that Role. User references remain tenant-local; a
-shared User is not a fallback subject for a tenant RoleBinding.
-RoleBinding grant resolution is tenant-scoped; `metadata.project` does not change the grant.
-Project membership and project-specific permissions come from Keycloak organization groups and OPA policy.
 
 ### Token Audience (`aud` Claim)
 

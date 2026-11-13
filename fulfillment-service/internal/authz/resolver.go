@@ -132,8 +132,9 @@ func (r *Resolver) Resolve(ctx context.Context, tenant string, subject Subject) 
 	roles := make(map[string]*privatev1.Role)
 	users := make(map[string]*privatev1.User)
 	usersByName := make(map[string]*privatev1.User)
+
 	// DAO visibility needs a subject even when resolution precedes the API authorization decision.
-	// Project metadata does not scope grants: read all projects of the verified tenant.
+	// Additonally, project metadata does not scope grants: read all projects of the verified tenant.
 	// The internal read-only context uses managed-service-account visibility for that tenant.
 	name := subject.Username
 	if name == "" {
