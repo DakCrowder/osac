@@ -169,6 +169,49 @@ var _ = Describe("Private role bindings server", func() {
 			Expect(err.Error()).To(ContainSubstring("a role is required for service account subjects"))
 		})
 
+		It("keeps updating a binding whose unchanged Role reference no longer resolves", func() {
+			created, err := roleBindingsServer.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
+				Object: privatev1.RoleBinding_builder{
+					Metadata: privatev1.Metadata_builder{Name: "deleted-role-update"}.Build(),
+					Spec: privatev1.RoleBindingSpec_builder{
+						Role: privatev1.RoleReference_builder{Id: "role-1"}.Build(),
+						Users: []*privatev1.UserReference{
+							privatev1.UserReference_builder{Id: "human-user"}.Build(),
+						},
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			roles, err := dao.NewGenericDAO[*privatev1.Role]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
+			Expect(err).ToNot(HaveOccurred())
+			_, err = roles.Delete().SetId("role-1").Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			stored, err := roleBindingsServer.Get(ctx, privatev1.RoleBindingsGetRequest_builder{
+				Id: created.GetObject().GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			stored.GetObject().GetMetadata().SetLabels(map[string]string{"updated": "true"})
+			updated, err := roleBindingsServer.Update(ctx, privatev1.RoleBindingsUpdateRequest_builder{
+				Object: stored.GetObject(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.GetObject().GetSpec().GetRole().GetId()).To(Equal("role-1"))
+			Expect(updated.GetObject().GetMetadata().GetLabels()).To(HaveKeyWithValue("updated", "true"))
+
+			_, err = roleBindingsServer.Update(ctx, privatev1.RoleBindingsUpdateRequest_builder{
+				Object: privatev1.RoleBinding_builder{Id: created.GetObject().GetId(),
+					Spec: privatev1.RoleBindingSpec_builder{
+						Role: privatev1.RoleReference_builder{Id: "missing-role"}.Build(),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.role"}},
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("role 'missing-role' not found"))
+		})
+
 		It("Lists role bindings", func() {
 			_, err := roleBindingsServer.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
 				Object: privatev1.RoleBinding_builder{

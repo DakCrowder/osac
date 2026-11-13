@@ -22,16 +22,18 @@ import (
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/authz/catalog"
+	"github.com/osac-project/osac/fulfillment-service/internal/collections"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
 
 const pageSize int32 = 100
 
-// Subject identifies exactly one kind of RoleBinding subject.
+// Subject identifies one authenticated RoleBinding subject and its verified tenants.
 type Subject struct {
 	Username         string
 	ServiceAccountID string
+	Tenants          collections.Set[string]
 }
 
 // BindingGrant records the binding and Role that supplied a tenant's methods.
@@ -44,10 +46,11 @@ type BindingGrant struct {
 	Rules         []*privatev1.PermissionRule
 }
 
-// Grants contains expanded methods keyed by binding tenant and their provenance.
+// Grants contains expanded methods for one tenant and their provenance.
 type Grants struct {
-	MethodsByTenant map[string][]string
-	Bindings        []BindingGrant
+	Tenant   string
+	Methods  []string
+	Bindings []BindingGrant
 }
 
 // Resolver reads bindings and referenced objects from the database. It is not an authorization evaluator.
@@ -58,9 +61,10 @@ type Resolver struct {
 
 // Store supplies current rows to the resolver. GetRole must use the Role ID.
 type Store interface {
-	ListBindings(context.Context, int32, int32) ([]*privatev1.RoleBinding, error)
+	ListBindings(context.Context, string, int32, int32) ([]*privatev1.RoleBinding, error)
 	GetRole(context.Context, string) (*privatev1.Role, error)
 	GetUser(context.Context, string) (*privatev1.User, error)
+	GetUserByName(context.Context, string, string) (*privatev1.User, error)
 }
 
 type DAOStore struct {
@@ -69,8 +73,9 @@ type DAOStore struct {
 	Users    *dao.GenericDAO[*privatev1.User]
 }
 
-func (s DAOStore) ListBindings(ctx context.Context, offset, limit int32) ([]*privatev1.RoleBinding, error) {
-	response, err := s.Bindings.List().SetLimit(limit).SetOffset(offset).Do(ctx)
+func (s DAOStore) ListBindings(ctx context.Context, tenant string, offset, limit int32) ([]*privatev1.RoleBinding, error) {
+	filter := fmt.Sprintf("this.metadata.tenant == %q && this.metadata.deletion_timestamp == null", tenant)
+	response, err := s.Bindings.List().SetFilter(filter).SetLimit(limit).SetOffset(offset).Do(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +98,19 @@ func (s DAOStore) GetUser(ctx context.Context, id string) (*privatev1.User, erro
 	return response.GetObject(), nil
 }
 
+func (s DAOStore) GetUserByName(ctx context.Context, tenant, name string) (*privatev1.User, error) {
+	filter := fmt.Sprintf("this.metadata.tenant == %q && this.metadata.name == %q && this.metadata.deletion_timestamp == null",
+		tenant, name)
+	response, err := s.Users.List().SetFilter(filter).SetLimit(1).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(response.GetItems()) == 0 {
+		return nil, &dao.ErrNotFound{IDs: []string{name}}
+	}
+	return response.GetItems()[0], nil
+}
+
 func NewResolver(store Store, permissionCatalog *catalog.Catalog) (*Resolver, error) {
 	if store == nil || permissionCatalog == nil {
 		return nil, errors.New("store and catalog are required")
@@ -100,23 +118,40 @@ func NewResolver(store Store, permissionCatalog *catalog.Catalog) (*Resolver, er
 	return &Resolver{store: store, catalog: permissionCatalog}, nil
 }
 
-// Resolve computes grants from current rows. Any database or catalog error discards the entire result.
-func (r *Resolver) Resolve(ctx context.Context, subject Subject) (*Grants, error) {
+// Resolve computes grants for one verified subject in one tenant. Any database or catalog error discards the result.
+func (r *Resolver) Resolve(ctx context.Context, tenant string, subject Subject) (*Grants, error) {
+	if tenant == "" || !subject.Tenants.Contains(tenant) {
+		return nil, errors.New("requested tenant must belong to the authenticated subject")
+	}
 	if (subject.Username == "") == (subject.ServiceAccountID == "") {
 		return nil, errors.New("exactly one subject identifier is required")
 	}
-	result := &Grants{MethodsByTenant: make(map[string][]string)}
-	methodSets := make(map[string]map[string]struct{})
+	result := &Grants{Tenant: tenant}
+	methodsSet := make(map[string]struct{})
 	roleMethods := make(map[string][]string)
 	roles := make(map[string]*privatev1.Role)
-	usernames := make(map[string]string)
+	users := make(map[string]*privatev1.User)
+	usersByName := make(map[string]*privatev1.User)
+	// DAO visibility needs a subject even when resolution precedes the API authorization decision.
+	// Project metadata does not scope grants: read all projects of the verified tenant.
+	// The internal read-only context uses managed-service-account visibility for that tenant.
+	name := subject.Username
+	if name == "" {
+		name = subject.ServiceAccountID
+	}
+	readCtx := auth.ContextWithSubject(ctx, &auth.Subject{
+		User: name, Tenants: collections.NewSet(tenant), ManagedServiceAccount: true,
+	})
 	for offset := int32(0); ; offset += pageSize {
-		page, err := r.store.ListBindings(ctx, offset, pageSize)
+		page, err := r.store.ListBindings(readCtx, tenant, offset, pageSize)
 		if err != nil {
 			return nil, err
 		}
 		for _, binding := range page {
-			matches, err := r.matches(ctx, binding, subject, usernames)
+			if binding.GetMetadata().GetTenant() != tenant || binding.GetMetadata().GetDeletionTimestamp() != nil {
+				continue
+			}
+			matches, err := r.matches(readCtx, binding, subject, users, usersByName)
 			if err != nil {
 				return nil, err
 			}
@@ -126,7 +161,7 @@ func (r *Resolver) Resolve(ctx context.Context, subject Subject) (*Grants, error
 			roleID := binding.GetSpec().GetRole().GetId()
 			role, seen := roles[roleID]
 			if !seen {
-				role, err = r.store.GetRole(ctx, roleID)
+				role, err = r.store.GetRole(readCtx, roleID)
 				if err != nil {
 					if _, missing := errors.AsType[*dao.ErrNotFound](err); !missing {
 						return nil, err
@@ -135,10 +170,9 @@ func (r *Resolver) Resolve(ctx context.Context, subject Subject) (*Grants, error
 				}
 				roles[roleID] = role
 			}
-			if role == nil {
+			if role == nil || role.GetMetadata().GetDeletionTimestamp() != nil {
 				continue
 			}
-			tenant := binding.GetMetadata().GetTenant()
 			roleTenant := role.GetMetadata().GetTenant()
 			if roleTenant != tenant && roleTenant != auth.SharedTenant {
 				continue
@@ -154,11 +188,8 @@ func (r *Resolver) Resolve(ctx context.Context, subject Subject) (*Grants, error
 				}
 				roleMethods[roleID] = methods
 			}
-			if methodSets[tenant] == nil {
-				methodSets[tenant] = make(map[string]struct{})
-			}
 			for _, method := range methods {
-				methodSets[tenant][method] = struct{}{}
+				methodsSet[method] = struct{}{}
 			}
 			result.Bindings = append(result.Bindings, BindingGrant{
 				BindingID: binding.GetId(), BindingTenant: tenant, RoleID: roleID,
@@ -170,14 +201,12 @@ func (r *Resolver) Resolve(ctx context.Context, subject Subject) (*Grants, error
 			break
 		}
 	}
-	for tenant, methods := range methodSets {
-		result.MethodsByTenant[tenant] = slices.Sorted(maps.Keys(methods))
-	}
+	result.Methods = slices.Sorted(maps.Keys(methodsSet))
 	return result, nil
 }
 
 func (r *Resolver) matches(ctx context.Context, binding *privatev1.RoleBinding, subject Subject,
-	usernames map[string]string) (bool, error) {
+	users, usersByName map[string]*privatev1.User) (bool, error) {
 	if subject.ServiceAccountID != "" {
 		for _, ref := range binding.GetSpec().GetServiceAccounts() {
 			if ref.GetId() == subject.ServiceAccountID {
@@ -186,28 +215,46 @@ func (r *Resolver) matches(ctx context.Context, binding *privatev1.RoleBinding, 
 		}
 		return false, nil
 	}
+	tenant := binding.GetMetadata().GetTenant()
 	for _, ref := range binding.GetSpec().GetUsers() {
-		if ref.GetId() == "" && ref.GetName() == subject.Username {
-			return true, nil
-		}
-		if ref.GetId() == "" {
+		if (ref.GetTenant() != "" && ref.GetTenant() != tenant) || (ref.GetShared() && tenant != auth.SharedTenant) {
 			continue
 		}
-		username, known := usernames[ref.GetId()]
-		if !known {
-			response, err := r.store.GetUser(ctx, ref.GetId())
-			if err != nil {
-				if _, missing := errors.AsType[*dao.ErrNotFound](err); !missing {
-					return false, err
-				}
-			} else {
-				username = response.GetSpec().GetUsername()
-			}
-			usernames[ref.GetId()] = username
+		user, err := r.userForReference(ctx, tenant, ref, users, usersByName)
+		if err != nil {
+			return false, err
 		}
-		if username == subject.Username {
+		if user != nil && user.GetMetadata().GetTenant() == tenant &&
+			user.GetMetadata().GetDeletionTimestamp() == nil && user.GetSpec().GetUsername() == subject.Username &&
+			(ref.GetName() == "" || ref.GetName() == user.GetMetadata().GetName()) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (r *Resolver) userForReference(ctx context.Context, tenant string, ref *privatev1.UserReference,
+	users, usersByName map[string]*privatev1.User) (*privatev1.User, error) {
+	if ref.GetId() == "" && ref.GetName() == "" {
+		return nil, nil
+	}
+	cache := users
+	key := ref.GetId()
+	lookup := func() (*privatev1.User, error) { return r.store.GetUser(ctx, key) }
+	if key == "" {
+		cache = usersByName
+		key = ref.GetName()
+		lookup = func() (*privatev1.User, error) { return r.store.GetUserByName(ctx, tenant, key) }
+	}
+	if user, known := cache[key]; known {
+		return user, nil
+	}
+	user, err := lookup()
+	if err != nil {
+		if _, missing := errors.AsType[*dao.ErrNotFound](err); !missing {
+			return nil, err
+		}
+	}
+	cache[key] = user
+	return user, nil
 }

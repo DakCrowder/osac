@@ -467,14 +467,17 @@ var _ = Describe("RegisterReferenceLookups", func() {
 				}.Build(),
 			}.Build())
 		}
-		_, err := create("grpc-unqualified-reader", privatev1.RoleReference_builder{Name: "tenant-reader"}.Build())
-		Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
+		unqualified, err := create("grpc-unqualified-reader", privatev1.RoleReference_builder{Name: "tenant-reader"}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(unqualified.GetObject().GetSpec().GetRole().GetId()).ToNot(BeEmpty())
+		Expect(unqualified.GetObject().GetSpec().GetRole().GetTenant()).To(Equal(auth.SharedTenant))
 
 		response, err := create("grpc-explicit-reader", privatev1.RoleReference_builder{
 			Name: "tenant-reader", Tenant: auth.SharedTenant,
 		}.Build())
 		Expect(err).ToNot(HaveOccurred())
-		Expect(response.GetObject().GetSpec().GetRole().GetId()).ToNot(BeEmpty())
+		Expect(response.GetObject().GetSpec().GetRole().GetId()).To(Equal(
+			unqualified.GetObject().GetSpec().GetRole().GetId()))
 		Expect(response.GetObject().GetSpec().GetRole().GetTenant()).To(Equal(auth.SharedTenant))
 
 		roleless, err := create("grpc-roleless-binding", nil)

@@ -16,12 +16,14 @@ package servers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
@@ -168,7 +170,7 @@ func (s *PrivateRoleBindingsServer) Signal(ctx context.Context,
 	return
 }
 
-func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, candidate *privatev1.RoleBinding) error {
+func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, current, candidate *privatev1.RoleBinding) error {
 	ref := candidate.GetSpec().GetRole()
 	serviceAccountRefs := candidate.GetSpec().GetServiceAccounts()
 	if ref.GetId() == "" && ref.GetName() == "" {
@@ -180,22 +182,34 @@ func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, 
 		}
 		return nil
 	}
-	role, err := s.resolveRoleReference(ctx, candidate)
-	if err != nil {
-		return err
+	// An update that carries the stored Role reference forward unchanged must keep working after that Role
+	// is deleted, because grant resolution already ignores bindings whose Role is gone. Only a reference
+	// this update changes has to resolve to a current Role.
+	var role *privatev1.Role
+	if current == nil || !proto.Equal(ref, current.GetSpec().GetRole()) {
+		var err error
+		role, err = s.resolveRoleReference(ctx, candidate)
+		if err != nil {
+			return err
+		}
 	}
-	roleName := role.GetMetadata().GetName()
-	roleTenant := role.GetMetadata().GetTenant()
-	bindingTenant := candidate.GetMetadata().GetTenant()
 	if len(serviceAccountRefs) == 0 {
 		return nil
 	}
-	sharedRole := roleTenant == auth.SharedTenant
-	systemCSIRole := roleName == "osac-csi-driver" && roleTenant == auth.SystemTenant && bindingTenant == auth.SystemTenant
-	if !serviceaccounts.IsAssignableRole(roleName) || (!sharedRole && !systemCSIRole) {
-		return status.Error(codes.InvalidArgument, "service accounts may only receive predefined OSAC roles")
+	if role != nil {
+		roleName := role.GetMetadata().GetName()
+		roleTenant := role.GetMetadata().GetTenant()
+		bindingTenant := candidate.GetMetadata().GetTenant()
+		sharedRole := roleTenant == auth.SharedTenant
+		systemCSIRole := roleName == "osac-csi-driver" && roleTenant == auth.SystemTenant &&
+			bindingTenant == auth.SystemTenant
+		if !serviceaccounts.IsAssignableRole(roleName) || (!sharedRole && !systemCSIRole) {
+			return status.Error(codes.InvalidArgument, "service accounts may only receive predefined OSAC roles")
+		}
 	}
 
+	// Subjects are validated even when an unchanged reference no longer resolves, because the subject
+	// list may still be changing in this update.
 	tenant := candidate.GetMetadata().GetTenant()
 	seen := make(map[string]struct{}, len(serviceAccountRefs))
 	for _, ref := range serviceAccountRefs {
@@ -220,6 +234,23 @@ func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, _, 
 func (s *PrivateRoleBindingsServer) resolveRoleReference(ctx context.Context,
 	candidate *privatev1.RoleBinding) (*privatev1.Role, error) {
 	ref := candidate.GetSpec().GetRole()
+	if ref.GetId() == "" && ref.GetName() != "" && ref.GetTenant() == "" && !ref.GetShared() && ref.GetProject() == "" {
+		// Role names are unique across all tenants (idx_roles_unique_name), so an unqualified name
+		// identifies at most one Role. Search the binding tenant first so local Roles need no
+		// qualification, then the shared catalog; resolveAndCanonicalizeReference rejects a name whose
+		// Role lives in any other tenant.
+		filter := fmt.Sprintf("this.metadata.name == %q && this.metadata.tenant == %q && this.metadata.deletion_timestamp == null",
+			ref.GetName(), candidate.GetMetadata().GetTenant())
+		local, err := s.roles.List().SetFilter(filter).SetLimit(1).Do(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(local.GetItems()) == 0 {
+			ref.SetTenant(auth.SharedTenant)
+		} else {
+			ref.SetId(local.GetItems()[0].GetId())
+		}
+	}
 	role, err := resolveAndCanonicalizeReference(ctx, s.roles, candidate.GetMetadata(), ref,
 		"role", codes.InvalidArgument)
 	if err != nil {
