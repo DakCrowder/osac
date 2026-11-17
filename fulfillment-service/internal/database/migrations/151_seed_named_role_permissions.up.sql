@@ -8,30 +8,17 @@
 --   http://www.apache.org/licenses/LICENSE-2.0
 --
 
--- Prepare OSAC-3058 named roles. Authorization remains enforced by the existing
--- policy until the evaluator is switched; this migration creates no bindings.
--- Keep existing IDs and shared/system placement so references remain valid.
--- Restore the tenant-user definition removed by migration 139 for future onboarding.
+-- Prepare permissions for named roles.
+-- This migration creates no bindings, and seeds roles with
+-- bindable subjects (users or managed service accounts)
 insert into roles (id, name, tenant, data) values
 (
   '019dd9f6-36cf-77bc-8041-c6a6a415c185',
   'tenant-user',
   'shared',
   '{"spec":{"title":"Tenant user", "description":"Standard user access within a tenant."},"status":{"state":"ROLE_STATE_READY"}}'
-),
-(
-  '610783ab-b6bd-449e-bd4b-826f9c039a50',
-  'system-emergency-admin',
-  'shared',
-  '{"spec":{"title":"System emergency administrator", "description":"Emergency administrative permissions."},"status":{"state":"ROLE_STATE_READY"}}'
 );
 
--- Explicit rules snapshot the current authz.rego client, reader, IdP-manager,
--- automation, and CSI method sets. Project-dependent checks remain separate.
--- Tenant admins additionally manage Role definitions. Their service wildcards
--- track resource-management methods, while definition reads stay explicit.
--- Global admin wildcards and the provider reader wildcard intentionally grow
--- with the catalog. Update only original seed IDs, never custom roles by name.
 with seeded_permissions (id, permissions) as (
   values
   -- cloud-provider-admin
@@ -227,10 +214,6 @@ with seeded_permissions (id, permissions) as (
   -- osac-csi-driver
   ('6eafb57d-4344-43fc-86eb-8ce17749f5ec', '[
       {"service": "osac.private.volumes", "methods": ["create", "delete", "get", "list"]}
-    ]'::jsonb),
-  -- system-emergency-admin
-  ('610783ab-b6bd-449e-bd4b-826f9c039a50', '[
-      {"service": "*", "methods": ["*"]}
     ]'::jsonb)
 )
 update roles

@@ -62,15 +62,14 @@ var _ = DescribeMigration("Seed named role permissions", func() {
 		}
 		Expect(rows.Err()).ToNot(HaveOccurred())
 		Expect(placements).To(Equal(map[string]string{
-			"cloud-provider-admin":   "shared",
-			"cloud-provider-reader":  "shared",
-			"tenant-admin":           "shared",
-			"tenant-reader":          "shared",
-			"tenant-user":            "shared",
-			"tenant-idp-manager":     "shared",
-			"tenant-automation":      "shared",
-			"osac-csi-driver":        "system",
-			"system-emergency-admin": "shared",
+			"cloud-provider-admin":  "shared",
+			"cloud-provider-reader": "shared",
+			"tenant-admin":          "shared",
+			"tenant-reader":         "shared",
+			"tenant-user":           "shared",
+			"tenant-idp-manager":    "shared",
+			"tenant-automation":     "shared",
+			"osac-csi-driver":       "system",
 		}))
 	})
 
