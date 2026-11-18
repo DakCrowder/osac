@@ -27,7 +27,9 @@ with seeded_permissions (id, permissions) as (
     ]'::jsonb),
   -- cloud-provider-reader
   ('019dd9f6-36cc-7a35-bfc5-242833f11c2f', '[
-      {"service": "osac.public.*", "methods": ["get", "list"]}
+      {"service": "osac.public.*", "methods": ["get", "list"]},
+      {"service": "osac.public.events", "methods": ["watch"]},
+      {"service": "osac.public.selfsubjectaccessreviews", "methods": ["create"]}
     ]'::jsonb),
   -- tenant-admin
   ('019dd9f6-36cd-78bf-9fa2-1be4464108b0', '[
@@ -91,7 +93,7 @@ with seeded_permissions (id, permissions) as (
       {"service": "osac.public.instancetypes", "methods": ["get", "list"]},
       {"service": "osac.public.natgateways", "methods": ["get", "list"]},
       {"service": "osac.public.projectmemberships", "methods": ["list"]},
-      {"service": "osac.public.projects", "methods": ["list"]},
+      {"service": "osac.public.projects", "methods": ["get", "list"]},
       {"service": "osac.public.rolebindings", "methods": ["get", "list"]},
       {"service": "osac.public.roles", "methods": ["get", "list"]},
       {"service": "osac.public.secrets", "methods": ["get", "list"]},
@@ -127,7 +129,7 @@ with seeded_permissions (id, permissions) as (
       {"service": "osac.public.instancetypes", "methods": ["get", "list"]},
       {"service": "osac.public.natgateways", "methods": ["create", "delete", "get", "list"]},
       {"service": "osac.public.projectmemberships", "methods": ["list"]},
-      {"service": "osac.public.projects", "methods": ["list"]},
+      {"service": "osac.public.projects", "methods": ["get", "list"]},
       {"service": "osac.public.rolebindings", "methods": ["get", "list"]},
       {"service": "osac.public.roles", "methods": ["get", "list"]},
       {"service": "osac.public.secrets", "methods": ["create", "delete", "get", "list", "update"]},
@@ -164,7 +166,7 @@ with seeded_permissions (id, permissions) as (
       {"service": "osac.public.instancetypes", "methods": ["get", "list"]},
       {"service": "osac.public.natgateways", "methods": ["create", "delete", "get", "list"]},
       {"service": "osac.public.projectmemberships", "methods": ["list"]},
-      {"service": "osac.public.projects", "methods": ["list"]},
+      {"service": "osac.public.projects", "methods": ["get", "list"]},
       {"service": "osac.public.rolebindings", "methods": ["create", "delete", "get", "list", "update"]},
       {"service": "osac.public.roles", "methods": ["get", "list"]},
       {"service": "osac.public.secrets", "methods": ["create", "delete", "get", "list", "update"]},
