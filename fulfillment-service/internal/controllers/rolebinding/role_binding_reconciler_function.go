@@ -32,9 +32,10 @@ import (
 
 // FunctionBuilder contains the data needed to build instances of the reconciler function.
 type FunctionBuilder struct {
-	logger     *slog.Logger
-	connection *grpc.ClientConn
-	idpClient  idp.ClientInterface
+	logger              *slog.Logger
+	connection          *grpc.ClientConn
+	idpClient           idp.ClientInterface
+	roleBindingsEnabled bool
 }
 
 // NewFunction creates a builder that can be used to configure and create reconciler functions.
@@ -60,6 +61,11 @@ func (b *FunctionBuilder) SetIdpClient(value idp.ClientInterface) *FunctionBuild
 	return b
 }
 
+func (b *FunctionBuilder) SetRoleBindingAuthorizationEnabled(value bool) *FunctionBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 // Build uses the data stored in the builder to create and configure a new reconciler function.
 func (b *FunctionBuilder) Build() (result *function, err error) {
 	if b.logger == nil {
@@ -76,11 +82,12 @@ func (b *FunctionBuilder) Build() (result *function, err error) {
 	}
 
 	result = &function{
-		logger:             b.logger,
-		roleBindingsClient: privatev1.NewRoleBindingsClient(b.connection),
-		rolesClient:        privatev1.NewRolesClient(b.connection),
-		usersClient:        privatev1.NewUsersClient(b.connection),
-		idpClient:          b.idpClient,
+		logger:              b.logger,
+		roleBindingsClient:  privatev1.NewRoleBindingsClient(b.connection),
+		rolesClient:         privatev1.NewRolesClient(b.connection),
+		usersClient:         privatev1.NewUsersClient(b.connection),
+		idpClient:           b.idpClient,
+		roleBindingsEnabled: b.roleBindingsEnabled,
 		maskCalculator: masks.NewCalculator().
 			Build(),
 	}
@@ -89,12 +96,13 @@ func (b *FunctionBuilder) Build() (result *function, err error) {
 
 // function is the implementation of the reconciler function.
 type function struct {
-	logger             *slog.Logger
-	roleBindingsClient privatev1.RoleBindingsClient
-	rolesClient        privatev1.RolesClient
-	usersClient        privatev1.UsersClient
-	idpClient          idp.ClientInterface
-	maskCalculator     *masks.Calculator
+	logger              *slog.Logger
+	roleBindingsClient  privatev1.RoleBindingsClient
+	rolesClient         privatev1.RolesClient
+	usersClient         privatev1.UsersClient
+	idpClient           idp.ClientInterface
+	maskCalculator      *masks.Calculator
+	roleBindingsEnabled bool
 }
 
 // Run executes the reconciliation logic for the given role binding.
@@ -107,7 +115,9 @@ func (r *function) Run(ctx context.Context, binding *privatev1.RoleBinding) erro
 	}
 
 	var err error
-	if binding.HasMetadata() && binding.GetMetadata().HasDeletionTimestamp() {
+	if r.roleBindingsEnabled {
+		err = task.projectRealmRole(ctx)
+	} else if binding.HasMetadata() && binding.GetMetadata().HasDeletionTimestamp() {
 		err = task.delete(ctx)
 	} else {
 		err = task.update(ctx)
@@ -122,6 +132,7 @@ func (r *function) Run(ctx context.Context, binding *privatev1.RoleBinding) erro
 		_, err = r.roleBindingsClient.Update(ctx, privatev1.RoleBindingsUpdateRequest_builder{
 			Object:     binding,
 			UpdateMask: updateMask,
+			Lock:       r.roleBindingsEnabled,
 		}.Build())
 	}
 

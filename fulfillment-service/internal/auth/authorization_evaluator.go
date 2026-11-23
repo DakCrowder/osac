@@ -52,7 +52,8 @@ type AuthzDecision struct {
 	// TenantGrants is the named-role evaluator's snapshot of grants by binding tenant.
 	// Named-role evaluations use a non-nil map and set SubjectTenants to the tenants
 	// authorized for this RPC. The legacy Rego evaluator leaves TenantGrants nil.
-	TenantGrants map[string]*authz.Grants
+	TenantGrants  map[string]*authz.Grants
+	PlatformGrant *authz.Grants
 }
 
 // AuthContext holds the complete identity claims extracted from a JWT token.
@@ -63,7 +64,10 @@ type AuthContext struct {
 	AuthMethod string
 
 	// Username is the authenticated user's name, extracted from preferred_username or username claim
-	Username string
+	Username        string
+	IdentitySubject string
+	ClientID        string
+	Issuer          string
 
 	// Groups contains the user's group memberships
 	Groups []any
@@ -85,7 +89,8 @@ type AuthContext struct {
 	// Tenant of the object requested by the incoming authorization request
 	Tenant string
 	// Name of the object requested by the incoming authorization request, currently only used for project operations.
-	Name string
+	Name   string
+	Review bool
 
 	// Managed service-account candidate claims are signed JWT inputs. Authorization
 	// is granted only after resolving the client against current Fulfillment state.

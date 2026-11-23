@@ -31,9 +31,93 @@ import (
 
 	"github.com/osac-project/osac/fulfillment-service/internal/uuid"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
+	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
 
 var _ = Describe("Role binding authorization", func() {
+	It("authorizes the first request and applies RoleBinding changes to an existing session", func(ctx context.Context) {
+		if config.TestSuite != "role-binding-authz" {
+			Skip("requires a fresh install with RoleBinding authorization enabled")
+		}
+		adminConn := tool.InternalView().AdminConn()
+		users := privatev1.NewUsersClient(adminConn)
+		bindings := privatev1.NewRoleBindingsClient(adminConn)
+		username := "named-auth-" + uuid.New()[24:32]
+		code, _, err := tool.KeycloakAdminRequest(ctx, http.MethodPost, "/users", map[string]any{"username": username})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(code).To(Equal(http.StatusCreated))
+		keycloakID, err := tool.keycloakEnsureUserReady(ctx, username)
+		Expect(err).ToNot(HaveOccurred())
+		DeferCleanup(func(cleanupCtx context.Context) {
+			code, _, err := tool.KeycloakAdminRequest(cleanupCtx, http.MethodDelete, "/users/"+keycloakID, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(code).To(BeElementOf(http.StatusNoContent, http.StatusNotFound))
+		})
+		Expect(tool.ensureUserInOrg(ctx, username, usersGroup)).To(Succeed())
+
+		makeConnection := func() *grpc.ClientConn {
+			connection, err := tool.MakeUserConnection(ctx, username, usersPassword)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(connection.Close)
+			return connection
+		}
+		connection := makeConnection()
+		projectClient := publicv1.NewProjectsClient(connection)
+		firstRequests := make(chan error, 2)
+		for range 2 {
+			go func() {
+				_, err := projectClient.List(ctx, &publicv1.ProjectsListRequest{})
+				firstRequests <- err
+			}()
+		}
+		for range 2 {
+			Expect(<-firstRequests).ToNot(HaveOccurred(), "each first request must see the user's onboarding binding")
+		}
+		_, err = publicv1.NewUsersClient(connection).List(ctx, &publicv1.UsersListRequest{})
+		Expect(grpcstatus.Code(err)).To(Equal(grpccodes.PermissionDenied))
+
+		filter := fmt.Sprintf("this.spec.username == %q && this.metadata.tenant == %q", username, usersGroup)
+		result, err := users.List(ctx, privatev1.UsersListRequest_builder{Filter: &filter}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(result.GetItems()).To(HaveLen(1))
+		userID := result.GetItems()[0].GetId()
+		DeferCleanup(func(cleanupCtx context.Context) error {
+			_, err := users.Delete(cleanupCtx, privatev1.UsersDeleteRequest_builder{Id: userID}.Build())
+			return err
+		})
+		created, err := bindings.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
+			Object: privatev1.RoleBinding_builder{
+				Metadata: privatev1.Metadata_builder{Name: username, Tenant: usersGroup}.Build(),
+				Spec: privatev1.RoleBindingSpec_builder{
+					Role:  privatev1.RoleReference_builder{Name: "tenant-admin", Tenant: "shared"}.Build(),
+					Users: []*privatev1.UserReference{privatev1.UserReference_builder{Id: userID}.Build()},
+				}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		bindingID := created.GetObject().GetId()
+		DeferCleanup(func(cleanupCtx context.Context) {
+			_, err := bindings.Delete(cleanupCtx, privatev1.RoleBindingsDeleteRequest_builder{Id: bindingID}.Build())
+			Expect(grpcstatus.Code(err)).To(BeElementOf(grpccodes.OK, grpccodes.NotFound))
+		})
+
+		_, err = publicv1.NewUsersClient(connection).List(ctx, &publicv1.UsersListRequest{})
+		Expect(err).ToNot(HaveOccurred(), "API access must begin before Keycloak projection")
+		Eventually(func(g Gomega) {
+			current, err := bindings.Get(ctx, privatev1.RoleBindingsGetRequest_builder{Id: bindingID}.Build())
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(current.GetObject().GetStatus().GetState()).To(Equal(privatev1.RoleBindingState_ROLE_BINDING_STATE_READY))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		reconnected := publicv1.NewUsersClient(makeConnection())
+		_, err = reconnected.List(ctx, &publicv1.UsersListRequest{})
+		Expect(err).ToNot(HaveOccurred())
+		_, err = bindings.Delete(ctx, privatev1.RoleBindingsDeleteRequest_builder{Id: bindingID}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		_, err = reconnected.List(ctx, &publicv1.UsersListRequest{})
+		Expect(grpcstatus.Code(err)).To(Equal(grpccodes.PermissionDenied), "the projected realm role must not retain access")
+	})
+
 	It("grants system-wide tenant listing while a tenant admin is in admins", func(ctx context.Context) {
 		const roleName = "tenant-admin"
 		username := fmt.Sprintf("role-binding-auth-%s", uuid.New()[24:32])

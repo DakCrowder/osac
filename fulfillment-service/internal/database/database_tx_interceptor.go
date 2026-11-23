@@ -37,6 +37,20 @@ type TxInterceptor struct {
 	manager TxManager
 }
 
+type txManagerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *txManagerStream) Context() context.Context {
+	return s.ctx
+}
+
+// StreamServer makes short transactions available without holding a transaction for the stream lifetime.
+func (i *TxInterceptor) StreamServer(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return handler(srv, &txManagerStream{ServerStream: stream, ctx: TxManagerIntoContext(stream.Context(), i.manager)})
+}
+
 // NewTxInterceptor creates a builder that can then be used to configure and create a transactions interceptor.
 func NewTxInterceptor() *TxInterceptorBuilder {
 	return &TxInterceptorBuilder{}

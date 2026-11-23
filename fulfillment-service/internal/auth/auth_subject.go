@@ -13,7 +13,10 @@ language governing permissions and limitations under the License.
 
 package auth
 
-import "github.com/osac-project/osac/fulfillment-service/internal/collections"
+import (
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
+	"github.com/osac-project/osac/fulfillment-service/internal/collections"
+)
 
 // Subject represents an entity, such as person or a service account.
 type Subject struct {
@@ -30,4 +33,7 @@ type Subject struct {
 
 	// ManagedServiceAccount marks an authenticated, Fulfillment-managed client for this request.
 	ManagedServiceAccount bool
+
+	// TenantGrants is set for human requests evaluated using RoleBindings.
+	TenantGrants map[string]*authz.Grants
 }

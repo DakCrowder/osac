@@ -37,11 +37,14 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"k8s.io/klog/v2"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
 	"github.com/osac-project/osac/fulfillment-service/internal/auth/jwe"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz/catalog"
 	"github.com/osac-project/osac/fulfillment-service/internal/console"
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
@@ -73,6 +76,9 @@ type userIDResolver struct {
 
 func (r *userIDResolver) GetID(ctx context.Context, username string) (string, error) {
 	filter := fmt.Sprintf("this.spec.username==%q", username)
+	if subject := auth.RoleBindingSubject(ctx); subject != nil && subject.Tenants.Contains(subject.Tenant) {
+		filter += fmt.Sprintf(" && this.metadata.tenant==%q", subject.Tenant)
+	}
 	listResponse, err := r.usersDAO.List().
 		SetFilter(filter).
 		SetLimit(1).
@@ -200,6 +206,12 @@ func Cmd() *cobra.Command {
 		emergencyServiceAccountsFlagHelp,
 	)
 	flags.BoolVar(
+		&runner.args.roleBindingsEnabled,
+		"enable-role-binding-authorization",
+		false,
+		"Authorize human users through RoleBindings.",
+	)
+	flags.BoolVar(
 		&runner.args.networkingProvisioningEnabled,
 		"networking-provisioning-enabled",
 		true,
@@ -235,6 +247,7 @@ type runnerContext struct {
 		tokenEncryptionCrt       string
 		tokenIssuer              string
 		emergencyServiceAccounts []string
+		roleBindingsEnabled      bool
 		vaultBase                vault.BaseConfig
 		services                 *services.Flags
 
@@ -506,12 +519,29 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	}
 
 	// Create the authorization evaluator:
-	evaluator, err := auth.NewEvaluator().
+	legacyEvaluator, err := auth.NewEvaluator().
 		AddEmergencyServiceAccounts(c.args.emergencyServiceAccounts).
 		SetManagedServiceAccountResolver(serviceaccounts.ResolveAuthorization).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create authorization evaluator: %w", err)
+	}
+	permissionCatalog, err := catalog.Build(protoregistry.GlobalFiles)
+	if err != nil {
+		return fmt.Errorf("failed to create permission catalog: %w", err)
+	}
+	var evaluator auth.AuthorizationEvaluator = legacyEvaluator
+	var roleBindingEvaluator *auth.RoleBindingEvaluator
+	if c.args.roleBindingsEnabled {
+		if len(c.args.trustedTokenIssuers) == 0 {
+			return fmt.Errorf("RoleBinding authorization requires the Keycloak token issuer")
+		}
+		resolver, err := authz.NewResolver(dao.GrantStore{RequireEnabledUsers: true}, permissionCatalog)
+		if err != nil {
+			return fmt.Errorf("failed to create RoleBinding grant resolver: %w", err)
+		}
+		roleBindingEvaluator = auth.NewRoleBindingEvaluator(legacyEvaluator, resolver, c.args.trustedTokenIssuers[0])
+		evaluator = roleBindingEvaluator
 	}
 
 	// Prepare the authorization interceptor:
@@ -543,6 +573,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetAttributionLogic(privateAttributionLogic).
 		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
+		SetRoleBindingAuthorizationEnabled(c.args.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create private users server: %w", err)
@@ -553,6 +584,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	userProvisioner, err := provisioners.NewUserProvisioner().
 		SetLogger(c.logger).
 		SetUsersServer(privateUsersServer).
+		SetRoleBindingAuthorizationEnabled(c.args.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create user provisioner: %w", err)
@@ -562,6 +594,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 	jitProvisioningInterceptor, err := auth.NewGrpcJitProvisioningInterceptor().
 		SetLogger(c.logger).
 		SetProvisioner(userProvisioner).
+		SetRoleBindingEvaluator(roleBindingEvaluator).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create JIT provisioning interceptor: %w", err)
@@ -628,6 +661,25 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		return fmt.Errorf("failed to create disabled-service handler: %w", err)
 	}
 
+	unaryAuthorization := []grpc.UnaryServerInterceptor{authzInterceptor.UnaryServer, jitProvisioningInterceptor.UnaryServer}
+	streamAuthorization := []grpc.StreamServerInterceptor{authzInterceptor.StreamServer, jitProvisioningInterceptor.StreamServer}
+	if c.args.roleBindingsEnabled {
+		unaryAuthorization[0], unaryAuthorization[1] = unaryAuthorization[1], unaryAuthorization[0]
+		streamAuthorization[0], streamAuthorization[1] = streamAuthorization[1], streamAuthorization[0]
+	}
+	unaryInterceptors := []grpc.UnaryServerInterceptor{
+		panicInterceptor.UnaryServer, metricsInterceptor.UnaryServer, loggingInterceptor.UnaryServer,
+		validationInterceptor.UnaryServer, txInterceptor.UnaryServer, authnInterceptor.UnaryServer,
+	}
+	unaryInterceptors = append(unaryInterceptors, unaryAuthorization...)
+	unaryInterceptors = append(unaryInterceptors, referenceValidator.UnaryServer)
+	streamInterceptors := []grpc.StreamServerInterceptor{
+		panicInterceptor.StreamServer, metricsInterceptor.StreamServer, loggingInterceptor.StreamServer,
+		validationInterceptor.StreamServer, txInterceptor.StreamServer, authnInterceptor.StreamServer,
+	}
+	streamInterceptors = append(streamInterceptors, streamAuthorization...)
+	streamInterceptors = append(streamInterceptors, referenceValidator.StreamServer)
+
 	// Create the gRPC server:
 	c.logger.InfoContext(ctx, "Creating gRPC server")
 	grpcServer := grpc.NewServer(
@@ -640,27 +692,8 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 			PermitWithoutStream: true,
 		}),
 		grpc.InTapHandle(disabledServiceHandler),
-		grpc.ChainUnaryInterceptor(
-			panicInterceptor.UnaryServer,
-			metricsInterceptor.UnaryServer,
-			loggingInterceptor.UnaryServer,
-			validationInterceptor.UnaryServer,
-			txInterceptor.UnaryServer,
-			authnInterceptor.UnaryServer,
-			authzInterceptor.UnaryServer,
-			jitProvisioningInterceptor.UnaryServer,
-			referenceValidator.UnaryServer,
-		),
-		grpc.ChainStreamInterceptor(
-			panicInterceptor.StreamServer,
-			metricsInterceptor.StreamServer,
-			loggingInterceptor.StreamServer,
-			validationInterceptor.StreamServer,
-			authnInterceptor.StreamServer,
-			authzInterceptor.StreamServer,
-			jitProvisioningInterceptor.StreamServer,
-			referenceValidator.StreamServer,
-		),
+		grpc.ChainUnaryInterceptor(unaryInterceptors...),
+		grpc.ChainStreamInterceptor(streamInterceptors...),
 	)
 	shutdown.AddGrpcServer(network.GrpcListenerName, 0, grpcServer)
 
@@ -784,6 +817,8 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SecretStore:             secretStore,
 		TierResolver:            tierResolver,
 		PrivateUsersServer:      privateUsersServer,
+		PermissionCatalog:       permissionCatalog,
+		RoleBindingsEnabled:     c.args.roleBindingsEnabled,
 		Services:                c.args.services,
 		NetworkingSettings:      networkingSettings,
 	})

@@ -91,6 +91,9 @@ mcp:
 # Authentication and authorization configuration:
 auth:
 
+  # Authorize human users through their OSAC RoleBindings on a fresh install.
+  roleBindingAuthorizationEnabled: false
+
   # This defines the URL of the OAuth issuer used for authentication. This parameter is mandatory.
   issuerUrl:
 

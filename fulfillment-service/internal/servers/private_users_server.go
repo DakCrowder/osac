@@ -23,23 +23,26 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
 
 type PrivateUsersServerBuilder struct {
-	logger            *slog.Logger
-	attributionLogic  auth.AttributionLogic
-	tenancyLogic      auth.TenancyLogic
-	metricsRegisterer prometheus.Registerer
-	filterDesc        protoreflect.MessageDescriptor
+	logger              *slog.Logger
+	attributionLogic    auth.AttributionLogic
+	tenancyLogic        auth.TenancyLogic
+	metricsRegisterer   prometheus.Registerer
+	filterDesc          protoreflect.MessageDescriptor
+	roleBindingsEnabled bool
 }
 
 var _ privatev1.UsersServer = (*PrivateUsersServer)(nil)
 
 type PrivateUsersServer struct {
 	privatev1.UnimplementedUsersServer
-	logger  *slog.Logger
-	generic *GenericServer[*privatev1.User]
+	logger          *slog.Logger
+	generic         *GenericServer[*privatev1.User]
+	defaultBindings *dao.GenericDAO[*privatev1.RoleBinding]
 }
 
 func NewPrivateUsersServer() *PrivateUsersServerBuilder {
@@ -75,6 +78,11 @@ func (b *PrivateUsersServerBuilder) SetFilterDesc(value protoreflect.MessageDesc
 	return b
 }
 
+func (b *PrivateUsersServerBuilder) SetRoleBindingAuthorizationEnabled(value bool) *PrivateUsersServerBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 func (b *PrivateUsersServerBuilder) Build() (result *PrivateUsersServer, err error) {
 	// Check parameters:
 	if b.logger == nil {
@@ -87,23 +95,35 @@ func (b *PrivateUsersServerBuilder) Build() (result *PrivateUsersServer, err err
 	}
 
 	// Create the generic server:
-	generic, err := NewGenericServer[*privatev1.User]().
+	genericBuilder := NewGenericServer[*privatev1.User]().
 		SetLogger(b.logger).
 		SetService(privatev1.Users_ServiceDesc.ServiceName).
 		SetAttributionLogic(b.attributionLogic).
 		SetTenancyLogic(b.tenancyLogic).
 		SetMetricsRegisterer(b.metricsRegisterer).
 		SetFilterDesc(b.filterDesc).
-		AddAllowedTenants(auth.SharedTenant).
-		Build()
+		AddAllowedTenants(auth.SharedTenant)
+	var defaultBindings *dao.GenericDAO[*privatev1.RoleBinding]
+	if b.roleBindingsEnabled {
+		genericBuilder.AddAllowedTenants(auth.SystemTenant)
+		defaultBindings, err = dao.NewGenericDAO[*privatev1.RoleBinding]().
+			SetLogger(b.logger).
+			SetTenancyLogic(b.tenancyLogic).
+			Build()
+		if err != nil {
+			return
+		}
+	}
+	generic, err := genericBuilder.Build()
 	if err != nil {
 		return
 	}
 
 	// Create and populate the object:
 	result = &PrivateUsersServer{
-		logger:  b.logger,
-		generic: generic,
+		logger:          b.logger,
+		generic:         generic,
+		defaultBindings: defaultBindings,
 	}
 	return
 }
@@ -133,6 +153,14 @@ func (s *PrivateUsersServer) Create(ctx context.Context,
 	if err = validateDefaultProjectForCreate(request.GetObject().GetMetadata()); err != nil {
 		return
 	}
+	if s.defaultBindings != nil {
+		err = s.generic.CreateWithCandidatePreparation(ctx, request, &response, prepareUserAuthorization)
+		if err != nil || isDryRun(ctx) {
+			return
+		}
+		err = assignUserDefaultRole(ctx, s.defaultBindings, response.GetObject())
+		return
+	}
 	err = s.generic.Create(ctx, request, &response)
 	return
 }
@@ -141,7 +169,11 @@ func (s *PrivateUsersServer) Update(ctx context.Context,
 	request *privatev1.UsersUpdateRequest) (response *privatev1.UsersUpdateResponse, err error) {
 	// Note that credentials are not pruned here because controllers need them to sync users with the identity
 	// provider. The public server prunes credentials independently before returning them to clients.
-	err = s.generic.Update(ctx, request, &response)
+	if s.defaultBindings != nil {
+		err = s.generic.UpdateWithCandidatePreparation(ctx, request, &response, prepareUserAuthorization)
+	} else {
+		err = s.generic.Update(ctx, request, &response)
+	}
 	return
 }
 

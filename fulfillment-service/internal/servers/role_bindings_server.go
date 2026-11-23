@@ -37,6 +37,7 @@ type RoleBindingsServerBuilder struct {
 	metricsRegisterer   prometheus.Registerer
 	userReferenceLookup references.ReferenceLookupFunc
 	permissionCatalog   *catalog.Catalog
+	roleBindingsEnabled bool
 }
 
 var _ publicv1.RoleBindingsServer = (*RoleBindingsServer)(nil)
@@ -95,6 +96,11 @@ func (b *RoleBindingsServerBuilder) SetPermissionCatalog(value *catalog.Catalog)
 	return b
 }
 
+func (b *RoleBindingsServerBuilder) SetRoleBindingAuthorizationEnabled(value bool) *RoleBindingsServerBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 // Build creates the public role bindings server from the builder configuration.
 func (b *RoleBindingsServerBuilder) Build() (result *RoleBindingsServer, err error) {
 	if b.logger == nil {
@@ -129,6 +135,7 @@ func (b *RoleBindingsServerBuilder) Build() (result *RoleBindingsServer, err err
 		SetMetricsRegisterer(b.metricsRegisterer).
 		SetFilterDesc((*publicv1.RoleBinding)(nil).ProtoReflect().Descriptor()).
 		SetPermissionCatalog(b.permissionCatalog).
+		SetRoleBindingAuthorizationEnabled(b.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return

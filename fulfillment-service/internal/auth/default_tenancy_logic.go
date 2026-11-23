@@ -89,6 +89,9 @@ func (p *DefaultTenancyLogic) DetermineDefaultTenant(ctx context.Context) (resul
 		return
 	}
 	inclusions := assignable.Inclusions()
+	if len(inclusions) > 1 && SubjectFromContext(ctx).TenantGrants != nil {
+		return "", nil
+	}
 	if len(inclusions) > 0 {
 		result = inclusions[0]
 	}
@@ -122,8 +125,8 @@ func (p *DefaultTenancyLogic) DetermineVisibility(ctx context.Context) (result *
 	}
 
 	// Check if the user has the tenant-admin role. If so, grant full access to all projects in their tenants.
-	if IsTenantAdmin(ctx) {
-		for _, tenant := range subject.Tenants.Inclusions() {
+	for _, tenant := range subject.Tenants.Inclusions() {
+		if IsTenantAdminIn(ctx, tenant) {
 			builder.SetTotalProjectVisibility(tenant)
 		}
 	}
@@ -190,10 +193,19 @@ func (p *DefaultTenancyLogic) addProjectsFromToken(ctx context.Context, builder 
 	// The organization claim can be an object mapping tenant names to group arrays
 	orgMap, ok := authContext.Organization.(map[string]any)
 	if !ok {
+		if subject := SubjectFromContext(ctx); subject.TenantGrants != nil {
+			tenants := ordinaryOrganizations(authContext).Inclusions()
+			if len(tenants) == 1 && subject.Tenants.Contains(tenants[0]) {
+				p.addProjectsFromTenantGroups(tenants[0], map[string]any{"groups": authContext.Groups}, builder)
+			}
+		}
 		return
 	}
 
 	for tenant, value := range orgMap {
+		if !SubjectFromContext(ctx).Tenants.Contains(tenant) {
+			continue
+		}
 		p.addProjectsFromTenantGroups(tenant, value, builder)
 	}
 }

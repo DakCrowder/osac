@@ -250,6 +250,8 @@ service:
     # expands via global.clusterDomain. Platforms that don't set
     # global.clusterDomain (e.g. kind) must override this explicitly instead.
     issuerUrl: "https://keycloak-keycloak.{{ .Values.global.clusterDomain }}/realms/osac"
+    roleBindingAuthorizationEnabled: false
+    bootstrapProviderAdminUsername: ""
     controllerCredentials: []
   idp:
     provider: keycloak

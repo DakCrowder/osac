@@ -244,4 +244,58 @@ for u in "${users[@]}"; do
   esac
 done
 
+if [[ "${ROLE_BINDING_AUTHORIZATION_ENABLED:-false}" == true ]]; then
+  # The bundled fixture has a direct role mapping for legacy installs. Move
+  # ownership to the explicit binding before it projects the same realm role.
+  admin_username="${TENANT_ADMIN_USERNAME:?set the dev tenant admin username}"
+  tenant_admin_id=$("${KCURL[@]}" --fail --get \
+    --data-urlencode "username=${admin_username}" --data-urlencode "exact=true" \
+    "${KC}/admin/realms/${KC_REALM}/users" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+  realm_role=$("${KCURL[@]}" --fail "${KC}/admin/realms/${KC_REALM}/roles/tenant-admin")
+
+  fulfillment_token="$(get_fulfillment_access_token)"
+  api="https://${INTERNAL_SVC}:8001/api/private/v1"
+  api_curl=(curl -fsS --cacert "${CA_FILE}" --connect-timeout 5 --max-time 15
+    -H "Authorization: Bearer ${fulfillment_token}" -H "Content-Type: application/json")
+  tenant_filter=$(python3 -c 'import json,sys; print("this.metadata.tenant == " + json.dumps(sys.argv[1]))' "${TENANT}")
+  user_filter=$(python3 -c 'import json,sys; print("this.spec.username == " + json.dumps(sys.argv[1]))' "${admin_username}")
+  user=$("${api_curl[@]}" --get --data-urlencode "filter=${tenant_filter} && ${user_filter}" "${api}/users" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin).get("items", []); print(d[0]["id"] if d else "")')
+  if [[ -z "${user}" ]]; then
+    body=$(python3 -c 'import json,sys; print(json.dumps({
+      "metadata": {"name": "dev-tenant-admin", "tenant": sys.argv[1]},
+      "spec": {"username": sys.argv[2], "enabled": True},
+      "status": {"keycloak_user_id": sys.argv[3]},
+    }))' "${TENANT}" "${admin_username}" "${tenant_admin_id}")
+    user=$("${api_curl[@]}" -d "${body}" "${api}/users" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  fi
+
+  binding_name="dev-tenant-admin-${user}"
+  binding=$("${api_curl[@]}" --get \
+    --data-urlencode "filter=${tenant_filter} && this.metadata.name == '${binding_name}'" "${api}/role_bindings" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin).get("items", []); print(d[0]["id"] if d else "")')
+  if [[ -z "${binding}" ]]; then
+    "${KCURL[@]}" --fail -X DELETE -d "[${realm_role}]" \
+      "${KC}/admin/realms/${KC_REALM}/users/${tenant_admin_id}/role-mappings/realm" >/dev/null
+    body=$(python3 -c 'import json,sys; print(json.dumps({
+      "metadata": {"name": sys.argv[3], "tenant": sys.argv[1]},
+      "spec": {"role": {"name": "tenant-admin", "tenant": "shared"}, "users": [{"id": sys.argv[2]}]},
+    }))' "${TENANT}" "${user}" "${binding_name}")
+    binding=$("${api_curl[@]}" -d "${body}" "${api}/role_bindings" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  fi
+
+  ready=false
+  for _ in $(seq 1 40); do
+    state=$("${api_curl[@]}" "${api}/role_bindings/${binding}" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", {}).get("state", ""))')
+    if [[ "${state}" == ROLE_BINDING_STATE_READY ]]; then
+      ready=true
+      break
+    fi
+    sleep 3
+  done
+  [[ "${ready}" == true ]] || { warn "dev tenant-admin binding did not synchronize to Keycloak"; exit 1; }
+fi
+
 log "Tenant '${TENANT}' ready — log in as one of: ${TENANT_USERS} (password: keycloak default-user-password)"

@@ -177,6 +177,12 @@ func Cmd() *cobra.Command {
 		idpClientSecretFlagHelp,
 	)
 	flags.BoolVar(
+		&runner.args.roleBindingsEnabled,
+		"enable-role-binding-authorization",
+		false,
+		"Provision and project RoleBindings for human users.",
+	)
+	flags.BoolVar(
 		&runner.args.networkingProvisioningEnabled,
 		"networking-provisioning-enabled",
 		true,
@@ -202,6 +208,7 @@ type runnerContext struct {
 	logger *slog.Logger
 	flags  *pflag.FlagSet
 	args   struct {
+		roleBindingsEnabled  bool
 		sync                 bool
 		caFiles              []string
 		authIssuerUrl        string
@@ -1026,6 +1033,7 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetLogger(r.logger).
 		SetConnection(r.client).
 		SetIdpClient(idpClient).
+		SetRoleBindingAuthorizationEnabled(r.args.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create role binding reconciler function: %w", err)
@@ -1106,6 +1114,7 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error { //nolint:
 		SetVaultLifecycle(vaultLifecycleClient).
 		SetDefaultNetworking(defaultNetworking).
 		SetProvisioningEnabled(r.args.networkingProvisioningEnabled).
+		SetRoleBindingAuthorizationEnabled(r.args.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create tenant reconciler function: %w", err)

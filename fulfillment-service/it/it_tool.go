@@ -102,6 +102,7 @@ type Tool struct {
 	internalView    *ToolView
 	externalView    *ToolView
 	secret          string
+	adminUsername   string
 	jqTool          *jq.Tool
 	cliBinaryPath   string
 	userTokenSource auth.TokenSource
@@ -179,10 +180,11 @@ func (b *ToolBuilder) Build() (result *Tool, err error) {
 
 	// Create and populate the object:
 	result = &Tool{
-		logger:     b.logger,
-		projectDir: projectDir,
-		secret:     b.secret,
-		jqTool:     jqTool,
+		logger:        b.logger,
+		projectDir:    projectDir,
+		secret:        b.secret,
+		adminUsername: adminUsername,
+		jqTool:        jqTool,
 	}
 	return
 }
@@ -639,7 +641,7 @@ func (t *Tool) createClients(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	adminTokenSource, err := t.makeKeycloakTokenSource(ctx, adminUsername, adminsPassword)
+	adminTokenSource, err := t.makeKeycloakTokenSource(ctx, t.adminUsername, adminsPassword)
 	if err != nil {
 		return err
 	}
@@ -817,7 +819,7 @@ func (t *Tool) waitForTenantsSynced(ctx context.Context) error {
 func (t *Tool) createKeycloakTestUsers(ctx context.Context) error {
 	t.logger.DebugContext(ctx, "Creating test users in Keycloak")
 
-	users := []string{adminUsername, userUsername}
+	users := []string{t.adminUsername, userUsername}
 	for user := range OIDCTenants {
 		users = append(users, user)
 	}
@@ -925,8 +927,8 @@ func (t *Tool) ensureUsersInKeycloakOrganizations(ctx context.Context) error {
 	t.logger.DebugContext(ctx, "Ensuring test users are in Keycloak organizations")
 
 	userOrgs := map[string]string{
-		adminUsername: "system",
-		userUsername:  usersGroup,
+		t.adminUsername: "system",
+		userUsername:    usersGroup,
 	}
 	for username, orgName := range userOrgs {
 		if err := t.ensureUserInOrg(ctx, username, orgName); err != nil {

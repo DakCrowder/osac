@@ -90,7 +90,7 @@ var _ = Describe("GrantStore streaming errors", func() {
 
 	It("returns query errors once without yielding grants", func() {
 		failure := errors.New("query failed")
-		tx.EXPECT().Query(ctx, userGrantsQuery, "tenant", "alice").Return(nil, failure)
+		tx.EXPECT().Query(ctx, userGrantsQuery+finishUserGrant, "tenant", "alice").Return(nil, failure)
 		tx.EXPECT().ReportError(gomock.Any())
 		calls := 0
 		for grant, err := range (GrantStore{}).ListUserGrants(ctx, "tenant", "alice") {

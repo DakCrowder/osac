@@ -54,6 +54,10 @@ spec:
           value: {{ .Values.tenant.name | quote }}
         - name: TENANT_USERS
           value: {{ .Values.tenant.users | quote }}
+        - name: TENANT_ADMIN_USERNAME
+          value: {{ .Values.tenant.adminUsername | quote }}
+        - name: ROLE_BINDING_AUTHORIZATION_ENABLED
+          value: {{ .Values.service.auth.roleBindingAuthorizationEnabled | quote }}
         - name: KC_NS
           value: {{ .Values.tenant.keycloak.namespace | quote }}
         - name: KC_REALM

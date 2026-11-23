@@ -1,0 +1,73 @@
+{{- if and .Values.service.enabled .Values.service.auth.roleBindingAuthorizationEnabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fulfillment-bootstrap-provider-admin
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-output-log-policy": hook-failed
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 750
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      {{- include "osac.waitForFulfillment" . | nindent 6 }}
+      containers:
+      - name: bootstrap-provider-admin
+        image: {{ .Values.cliImage }}
+        command:
+        - /bin/bash
+        - -euo
+        - pipefail
+        - -c
+        - |
+          {{- include "osac.fulfillmentAccessTokenFunction" . | nindent 10 }}
+          OSAC_BOOTSTRAP_TOKEN="$(get_fulfillment_access_token)"
+          export OSAC_BOOTSTRAP_TOKEN
+          exec python3 - <<'PYTHON'
+          {{- .Files.Get "files/bootstrap-provider-admin.py" | nindent 10 }}
+          PYTHON
+        env:
+        - name: OSAC_BOOTSTRAP_USERNAME
+          value: {{ required "service.auth.bootstrapProviderAdminUsername is required with RoleBinding authorization" .Values.service.auth.bootstrapProviderAdminUsername | quote }}
+        {{- include "osac.fulfillmentAuthEnv" . | nindent 8 }}
+        volumeMounts:
+        - name: ca-bundle
+          mountPath: /etc/ca-bundle
+          readOnly: true
+        {{- include "osac.fulfillmentAuthVolumeMount" . | nindent 8 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: ca-bundle
+        configMap:
+          name: {{ required "service.certs.caBundle.configMap is required" .Values.service.certs.caBundle.configMap }}
+          items:
+          - key: bundle.pem
+            path: bundle.pem
+      {{- include "osac.fulfillmentAuthVolume" . | nindent 6 }}
+{{- end }}

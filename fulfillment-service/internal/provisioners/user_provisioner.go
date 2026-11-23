@@ -15,6 +15,7 @@ package provisioners
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -30,16 +31,18 @@ import (
 
 // UserProvisionerBuilder builds a UserProvisioner.
 type UserProvisionerBuilder struct {
-	logger      *slog.Logger
-	usersServer privatev1.UsersServer
+	logger              *slog.Logger
+	usersServer         privatev1.UsersServer
+	roleBindingsEnabled bool
 }
 
 // UserProvisioner implements auth.UserProvisioner using the PrivateUsersServer.
 // The server handles event generation, so user creation automatically triggers events
 // for the user controller to reconcile and populate keycloak_user_id in status.
 type UserProvisioner struct {
-	logger      *slog.Logger
-	usersServer privatev1.UsersServer
+	logger              *slog.Logger
+	usersServer         privatev1.UsersServer
+	roleBindingsEnabled bool
 }
 
 // NewUserProvisioner creates a new builder.
@@ -59,6 +62,11 @@ func (b *UserProvisionerBuilder) SetUsersServer(value privatev1.UsersServer) *Us
 	return b
 }
 
+func (b *UserProvisionerBuilder) SetRoleBindingAuthorizationEnabled(value bool) *UserProvisionerBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 // Build creates the provisioner.
 func (b *UserProvisionerBuilder) Build() (result *UserProvisioner, err error) {
 	if b.logger == nil {
@@ -68,8 +76,9 @@ func (b *UserProvisionerBuilder) Build() (result *UserProvisioner, err error) {
 		return nil, fmt.Errorf("users server is mandatory")
 	}
 	result = &UserProvisioner{
-		logger:      b.logger,
-		usersServer: b.usersServer,
+		logger:              b.logger,
+		usersServer:         b.usersServer,
+		roleBindingsEnabled: b.roleBindingsEnabled,
 	}
 	return result, nil
 }
@@ -79,6 +88,38 @@ func (b *UserProvisionerBuilder) Build() (result *UserProvisioner, err error) {
 // that the user controller watches. The controller will reconcile the user and
 // populate the keycloak_user_id in the status.
 func (p *UserProvisioner) Provision(ctx context.Context, username, tenant string, claims jwt.MapClaims) error {
+	if p.roleBindingsEnabled {
+		subject, _ := claims["sub"].(string)
+		if subject == "" {
+			return fmt.Errorf("the authenticated user has no identity subject")
+		}
+		tx, err := database.TxFromContext(ctx)
+		if err != nil {
+			return err
+		}
+		var needed, pendingIdentity bool
+		err = tx.QueryRow(ctx, `
+			with existing as (
+				select deletion_timestamp, data from users where tenant = $1 and data #>> '{spec,username}' = $2
+			)
+			select exists (select 1 from tenants where id = $1 and deletion_timestamp = 'epoch')
+			   and not exists (select 1 from existing)
+			   and not exists (select 1 from archived_users where tenant = $1 and data #>> '{spec,username}' = $2),
+			   exists (select 1 from existing where deletion_timestamp = 'epoch'
+				   and data #> '{spec,enabled}' = 'true'::jsonb
+				   and coalesce(data #>> '{status,keycloak_user_id}', '') = '')
+		`, tenant, username).Scan(&needed, &pendingIdentity)
+		if err != nil {
+			return err
+		}
+		if needed {
+			return p.create(ctx, username, tenant, claims)
+		}
+		if pendingIdentity {
+			return linkUserIdentity(ctx, tx, tenant, username, subject)
+		}
+		return nil
+	}
 	// Check if user exists
 	filter := fmt.Sprintf("this.spec.username==%q", username)
 	limit := int32(1)
@@ -94,7 +135,10 @@ func (p *UserProvisioner) Provision(ctx context.Context, username, tenant string
 	if listResponse.GetSize() > 0 {
 		return nil
 	}
+	return p.create(ctx, username, tenant, claims)
+}
 
+func (p *UserProvisioner) create(ctx context.Context, username, tenant string, claims jwt.MapClaims) error {
 	// Extract claims
 	email, _ := claims["email"].(string)
 
@@ -102,6 +146,10 @@ func (p *UserProvisioner) Provision(ctx context.Context, username, tenant string
 	// DNS-1123 requires: lowercase letters, digits, and hyphens only, with no
 	// leading or trailing hyphens. The original username is preserved in spec.username.
 	sanitizedName := sanitizeForDNS1123(username)
+	if p.roleBindingsEnabled && (sanitizedName != username || len(sanitizedName) > 63) {
+		digest := sha256.Sum256([]byte(username))
+		sanitizedName = fmt.Sprintf("user-%x", digest[:20])
+	}
 
 	p.logger.InfoContext(ctx, "Provisioning user",
 		slog.String("username", username),
@@ -123,6 +171,10 @@ func (p *UserProvisioner) Provision(ctx context.Context, username, tenant string
 			Enabled:  true,
 		}.Build(),
 	}.Build()
+	if p.roleBindingsEnabled {
+		subject, _ := claims["sub"].(string)
+		user.SetStatus(privatev1.UserStatus_builder{KeycloakUserId: subject}.Build())
+	}
 
 	tx, err := database.TxFromContext(ctx)
 	if err != nil {
@@ -136,12 +188,29 @@ func (p *UserProvisioner) Provision(ctx context.Context, username, tenant string
 	})
 	if err != nil {
 		if status.Code(err) == codes.AlreadyExists {
+			if p.roleBindingsEnabled {
+				return linkUserIdentity(ctx, tx, tenant, username, user.GetStatus().GetKeycloakUserId())
+			}
 			return nil
 		}
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
 	return nil
+}
+
+// Link an explicitly created User on first login. A concurrent request or the
+// user reconciler may already have associated a verified identity.
+func linkUserIdentity(ctx context.Context, tx database.Tx, tenant, username, subject string) error {
+	_, err := tx.Exec(ctx, `
+		update users set data = jsonb_set(data, '{status}',
+			coalesce(nullif(data->'status', 'null'::jsonb), '{}'::jsonb)
+			|| jsonb_build_object('keycloak_user_id', $3::text))
+		where tenant = $1 and data #>> '{spec,username}' = $2 and deletion_timestamp = 'epoch'
+		  and data #> '{spec,enabled}' = 'true'::jsonb
+		  and coalesce(data #>> '{status,keycloak_user_id}', '') = ''
+	`, tenant, username, subject)
+	return err
 }
 
 // sanitizeForDNS1123 converts a username to a DNS-1123 compliant name.

@@ -302,6 +302,12 @@ func (i *GrpcAuthzInterceptor) authorizeWithToken(ctx context.Context, method st
 	result = ContextWithSubject(ctx, subject)
 	result = ContextWithAuthenticationMethod(result, authContext.AuthMethod)
 	result = withRoleMutationDecision(result, method, subject.Tenants, decision.TenantGrants)
+	if decision.PlatformGrant != nil {
+		if mutation, ok := RoleMutationDecisionFromContext(result); ok {
+			mutation.PlatformGrant = decision.PlatformGrant
+			result = ContextWithRoleMutationDecision(result, mutation)
+		}
+	}
 
 	logger.DebugContext(
 		result,
@@ -320,7 +326,8 @@ func withRoleMutationDecision(ctx context.Context, method string, tenants collec
 	case publicv1.Roles_Create_FullMethodName, publicv1.Roles_Update_FullMethodName,
 		publicv1.RoleBindings_Create_FullMethodName, publicv1.RoleBindings_Update_FullMethodName,
 		privatev1.Roles_Create_FullMethodName, privatev1.Roles_Update_FullMethodName,
-		privatev1.RoleBindings_Create_FullMethodName, privatev1.RoleBindings_Update_FullMethodName:
+		privatev1.RoleBindings_Create_FullMethodName, privatev1.RoleBindings_Update_FullMethodName,
+		privatev1.Tenants_Create_FullMethodName, privatev1.Tenants_Update_FullMethodName:
 		grants := make(map[string]*authz.Grants)
 		for tenant, grant := range tenantGrants {
 			if tenants.Contains(tenant) {
@@ -412,6 +419,11 @@ func (i *GrpcAuthzInterceptor) buildContextExtensions(ctx context.Context, authC
 		// The OPA policy iterates over the user's tenants to check manager group membership.
 		if method == "/osac.public.v1.ProjectMemberships/Create" {
 			authContext.Project = i.extractProjectFromRequest(request)
+			if _, enabled := i.evaluator.(*RoleBindingEvaluator); enabled {
+				if message, ok := request.(proto.Message); ok {
+					authContext.Tenant = reflection.ResolveFieldPathOr(message, "object.metadata.tenant", "")
+				}
+			}
 		}
 	}
 }
@@ -463,6 +475,7 @@ func (i *GrpcAuthzInterceptor) buildSubjectFromDecision(decision *AuthzDecision)
 		User:                  decision.SubjectUser,
 		Tenant:                decision.SubjectTenant,
 		ManagedServiceAccount: decision.ManagedServiceAccount,
+		TenantGrants:          decision.TenantGrants,
 	}
 	// Check for the universal tenant marker "*".
 	for _, tenant := range decision.SubjectTenants {

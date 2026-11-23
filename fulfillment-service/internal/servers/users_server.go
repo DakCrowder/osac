@@ -26,10 +26,11 @@ import (
 )
 
 type UsersServerBuilder struct {
-	logger            *slog.Logger
-	attributionLogic  auth.AttributionLogic
-	tenancyLogic      auth.TenancyLogic
-	metricsRegisterer prometheus.Registerer
+	logger              *slog.Logger
+	attributionLogic    auth.AttributionLogic
+	tenancyLogic        auth.TenancyLogic
+	metricsRegisterer   prometheus.Registerer
+	roleBindingsEnabled bool
 }
 
 var _ publicv1.UsersServer = (*UsersServer)(nil)
@@ -59,6 +60,11 @@ func (b *UsersServerBuilder) SetAttributionLogic(value auth.AttributionLogic) *U
 
 func (b *UsersServerBuilder) SetTenancyLogic(value auth.TenancyLogic) *UsersServerBuilder {
 	b.tenancyLogic = value
+	return b
+}
+
+func (b *UsersServerBuilder) SetRoleBindingAuthorizationEnabled(value bool) *UsersServerBuilder {
+	b.roleBindingsEnabled = value
 	return b
 }
 
@@ -107,6 +113,7 @@ func (b *UsersServerBuilder) Build() (result *UsersServer, err error) {
 		SetTenancyLogic(b.tenancyLogic).
 		SetMetricsRegisterer(b.metricsRegisterer).
 		SetFilterDesc((*publicv1.User)(nil).ProtoReflect().Descriptor()).
+		SetRoleBindingAuthorizationEnabled(b.roleBindingsEnabled).
 		Build()
 	if err != nil {
 		return

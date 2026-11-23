@@ -87,6 +87,15 @@
         "attributes": {}
       },
       {
+        "id": "a1b2c3d4-e5f6-7890-abcd-900000000007",
+        "name": "cloud-provider-admin",
+        "description": "OSAC web UI persona for cloud provider administrators",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "01e6c34f-6906-4907-9cbd-2dec7a6a0e1d",
+        "attributes": {}
+      },
+      {
         "id": "a1b2c3d4-e5f6-7890-abcd-900000000003",
         "name": "tenant-admin",
         "description": "Tenant administrator role with elevated privileges",
@@ -588,6 +597,21 @@
       "groups": [
         "/admins"
       ]
+    },
+    {
+      "id": "d86841f4-7d70-42ff-8cf0-f868538589a8",
+      "username": "rolebinding-admin",
+      "firstName": "Provider",
+      "lastName": "Administrator",
+      "email": "rolebinding-admin@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [],
+      "requiredActions": [],
+      "realmRoles": [
+        "default-roles-my realm"
+      ],
+      "groups": []
     },
     {
       "id": "f81e5429-26ff-418e-bf67-c054e449e7b7",

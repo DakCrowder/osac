@@ -61,7 +61,7 @@ func (r *DeleteRequest[O]) do(ctx context.Context) (response *DeleteResponse, er
 	}
 
 	// Check visibility:
-	ok, err := r.addVisibilityFilter(ctx)
+	ok, err := r.addMutationVisibilityFilter(ctx)
 	if err != nil {
 		return
 	}

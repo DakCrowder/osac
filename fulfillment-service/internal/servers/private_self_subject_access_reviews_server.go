@@ -168,7 +168,11 @@ func (s *PrivateSelfSubjectAccessReviewsServer) Create(ctx context.Context, requ
 	// For other methods (Create, Update, etc.), use shared tenant determination logic
 	method := spec.GetMethod()
 	var determinedTenant string
-	if method == "Get" || method == "List" || method == "Delete" {
+	if evaluator, ok := s.evaluator.(*auth.RoleBindingEvaluator); ok && evaluator.UsesRoleBindings(authContext) {
+		authContext.Review = true
+		determinedTenant = requestedTenant
+		authContext.Project = review.GetMetadata().GetProject()
+	} else if method == "Get" || method == "List" || method == "Delete" {
 		determinedTenant = requestedTenant
 	} else {
 		// Use shared tenant determination logic (same as GenericServer)

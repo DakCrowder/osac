@@ -1012,6 +1012,15 @@
               "items": {
                 "type": "string"
               }
+            },
+            "roleBindingAuthorizationEnabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Authorize human users through their OSAC RoleBindings on a fresh install."
+            },
+            "bootstrapProviderAdminUsername": {
+              "type": "string",
+              "description": "Existing Keycloak user who receives the first Cloud Provider Admin RoleBinding."
             }
           },
           "additionalProperties": false

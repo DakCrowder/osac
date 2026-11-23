@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +30,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/sshkey"
 	"github.com/osac-project/osac/fulfillment-service/internal/vault"
@@ -408,8 +411,8 @@ func (s *PrivateSecretsServer) canManagePlatformSecrets(ctx context.Context) (bo
 	return assignable.Universal(), nil
 }
 
-func (s *PrivateSecretsServer) canReadProtectedSecrets(ctx context.Context) (bool, error) {
-	if auth.IsTenantAdmin(ctx) || auth.IsControllerServiceAccount(ctx) {
+func (s *PrivateSecretsServer) canReadProtectedSecrets(ctx context.Context, tenant string) (bool, error) {
+	if auth.IsTenantAdminIn(ctx, tenant) || auth.IsControllerServiceAccount(ctx) {
 		return true, nil
 	}
 	return s.canManagePlatformSecrets(ctx)
@@ -420,7 +423,7 @@ func (s *PrivateSecretsServer) canReadProtectedSecrets(ctx context.Context) (boo
 // because callers can request a protected object directly by ID.
 func (s *PrivateSecretsServer) filterProtectedSecrets(ctx context.Context,
 	request *privatev1.SecretsListRequest) (*privatev1.SecretsListRequest, error) {
-	allowed, err := s.canReadProtectedSecrets(ctx)
+	allowed, err := s.canReadProtectedSecrets(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -438,6 +441,18 @@ func (s *PrivateSecretsServer) filterProtectedSecrets(ctx context.Context,
 	protectedFilter := fmt.Sprintf("this.type != %d && !this.metadata.name.contains(%q)",
 		privatev1.SecretType_SECRET_TYPE_SERVICE_ACCOUNT_CREDENTIAL,
 		breakGlassCredentialsSecretName)
+	var adminTenants []string
+	if subject := auth.RoleBindingSubject(ctx); subject != nil {
+		for tenant, grants := range subject.TenantGrants {
+			if subject.Tenants.Contains(tenant) && grants.HasRole(authz.TenantAdminRoleID) {
+				adminTenants = append(adminTenants, strconv.Quote(tenant))
+			}
+		}
+	}
+	if len(adminTenants) > 0 {
+		sort.Strings(adminTenants)
+		protectedFilter = fmt.Sprintf("(%s) || this.metadata.tenant in [%s]", protectedFilter, strings.Join(adminTenants, ", "))
+	}
 	if filter := request.GetFilter(); filter != "" {
 		protectedFilter = fmt.Sprintf("(%s) && (%s)", filter, protectedFilter)
 	}
@@ -452,7 +467,7 @@ func (s *PrivateSecretsServer) authorizeProtectedSecret(ctx context.Context,
 	}
 
 	if !mutate {
-		allowed, err := s.canReadProtectedSecrets(ctx)
+		allowed, err := s.canReadProtectedSecrets(ctx, secret.GetMetadata().GetTenant())
 		if err != nil {
 			return err
 		}

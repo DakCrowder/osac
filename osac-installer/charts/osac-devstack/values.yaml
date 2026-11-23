@@ -15,6 +15,7 @@ cliImage: quay.io/openshift/origin-cli:4.20.0
 service:
   auth:
     issuerUrl: ""
+    roleBindingAuthorizationEnabled: false
     controllerCredentials:
       - secret:
           name: fulfillment-controller-credentials
@@ -112,6 +113,7 @@ tenant:
   enabled: true
   name: tenant1
   users: "tenant1_user,tenant1_admin"  # Comma-separated
+  adminUsername: tenant1_admin
   keycloak:
     namespace: keycloak
     realm: osac

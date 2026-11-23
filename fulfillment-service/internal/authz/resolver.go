@@ -29,17 +29,19 @@ import (
 // Subject identifies one authenticated RoleBinding subject and its verified tenants.
 type Subject struct {
 	Username         string
+	IdentitySubject  string
 	ServiceAccountID string
 	Tenants          collections.Set[string]
 }
 
 // BindingGrant records the binding and Role that supplied a tenant's methods.
 type BindingGrant struct {
-	BindingID  string
-	RoleID     string
-	RoleName   string
-	RoleTenant string
-	Rules      []*privatev1.PermissionRule
+	BindingID      string
+	DefaultBinding bool
+	RoleID         string
+	RoleName       string
+	RoleTenant     string
+	Rules          []*privatev1.PermissionRule
 }
 
 // Grants contains expanded methods for one tenant and their provenance.
@@ -57,6 +59,29 @@ type Grants struct {
 type Store interface {
 	ListUserGrants(context.Context, string, string) iter.Seq2[BindingGrant, error]
 	ListServiceAccountGrants(context.Context, string, string) iter.Seq2[BindingGrant, error]
+}
+
+// VerifiedUserStore matches grants against both the username and the verified IdP subject.
+type VerifiedUserStore interface {
+	ListVerifiedUserGrants(context.Context, string, string, string) iter.Seq2[BindingGrant, error]
+}
+
+// IDs of the seeded roles, whose authorization semantics do not transfer on rename or recreation.
+const (
+	ProviderAdminRoleID    = "019dd9f6-36cb-7824-ac1c-6455d8a7a9b5"
+	ProviderReaderRoleID   = "019dd9f6-36cc-7a35-bfc5-242833f11c2f"
+	TenantAdminRoleID      = "019dd9f6-36cd-78bf-9fa2-1be4464108b0"
+	TenantReaderRoleID     = "019dd9f6-36ce-78fc-96d8-b87cf58bf14c"
+	TenantIDPManagerRoleID = "019dd9f6-d573-beaa-41c5-96965e594cc6"
+	DefaultBindingPrefix   = "onboarding-"
+)
+
+const ProjectionRoleAnnotation = "osac.openshift.io/projected-realm-role"
+
+func (g *Grants) HasRole(roleID string) bool {
+	return g != nil && slices.ContainsFunc(g.Bindings, func(binding BindingGrant) bool {
+		return binding.RoleID == roleID
+	})
 }
 
 // Resolver reads subject grants and expands their permission rules.
@@ -87,16 +112,34 @@ func (r *Resolver) Resolve(ctx context.Context, tenant string, subject Subject) 
 	var bindings iter.Seq2[BindingGrant, error]
 	if subject.ServiceAccountID != "" {
 		bindings = r.store.ListServiceAccountGrants(ctx, tenant, subject.ServiceAccountID)
+	} else if subject.IdentitySubject != "" {
+		store, ok := r.store.(VerifiedUserStore)
+		if !ok {
+			return nil, errors.New("verified user grant store is required")
+		}
+		bindings = store.ListVerifiedUserGrants(ctx, tenant, subject.Username, subject.IdentitySubject)
 	} else {
 		bindings = r.store.ListUserGrants(ctx, tenant, subject.Username)
 	}
 	grants := &Grants{Tenant: tenant}
-	methods := make(map[string]struct{})
-	roleMethods := make(map[string][]string)
 	for binding, err := range bindings {
 		if err != nil {
 			return nil, err
 		}
+		// Resolve the verified system identity only for the platform-wide provider grant.
+		if subject.IdentitySubject != "" && tenant == "system" && binding.RoleID != ProviderAdminRoleID {
+			continue
+		}
+		grants.Bindings = append(grants.Bindings, binding)
+	}
+	if grants.HasRole(TenantReaderRoleID) || grants.HasRole(ProviderReaderRoleID) {
+		grants.Bindings = slices.DeleteFunc(grants.Bindings, func(binding BindingGrant) bool {
+			return binding.DefaultBinding
+		})
+	}
+	methods := make(map[string]struct{})
+	roleMethods := make(map[string][]string)
+	for _, binding := range grants.Bindings {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -114,7 +157,6 @@ func (r *Resolver) Resolve(ctx context.Context, tenant string, subject Subject) 
 		for _, method := range expanded {
 			methods[method] = struct{}{}
 		}
-		grants.Bindings = append(grants.Bindings, binding)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

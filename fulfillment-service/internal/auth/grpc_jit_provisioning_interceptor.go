@@ -20,6 +20,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/util"
@@ -34,15 +36,17 @@ type UserProvisioner interface {
 
 // GrpcJitProvisioningInterceptorBuilder builds a GrpcJitProvisioningInterceptor.
 type GrpcJitProvisioningInterceptorBuilder struct {
-	logger      *slog.Logger
-	provisioner UserProvisioner
+	logger               *slog.Logger
+	provisioner          UserProvisioner
+	roleBindingEvaluator *RoleBindingEvaluator
 }
 
 // GrpcJitProvisioningInterceptor performs just-in-time user provisioning for authenticated requests.
-// It runs after authentication and authorization, provisioning users who have been granted access.
+// It runs before RoleBinding authorization and after legacy authorization.
 type GrpcJitProvisioningInterceptor struct {
-	logger      *slog.Logger
-	provisioner UserProvisioner
+	logger               *slog.Logger
+	provisioner          UserProvisioner
+	roleBindingEvaluator *RoleBindingEvaluator
 }
 
 // NewGrpcJitProvisioningInterceptor creates a new builder.
@@ -62,14 +66,20 @@ func (b *GrpcJitProvisioningInterceptorBuilder) SetProvisioner(value UserProvisi
 	return b
 }
 
+func (b *GrpcJitProvisioningInterceptorBuilder) SetRoleBindingEvaluator(value *RoleBindingEvaluator) *GrpcJitProvisioningInterceptorBuilder {
+	b.roleBindingEvaluator = value
+	return b
+}
+
 // Build creates the interceptor.
 func (b *GrpcJitProvisioningInterceptorBuilder) Build() (result *GrpcJitProvisioningInterceptor, err error) {
 	if b.logger == nil {
 		return nil, fmt.Errorf("logger is mandatory")
 	}
 	result = &GrpcJitProvisioningInterceptor{
-		logger:      b.logger,
-		provisioner: b.provisioner,
+		logger:               b.logger,
+		provisioner:          b.provisioner,
+		roleBindingEvaluator: b.roleBindingEvaluator,
 	}
 	return result, nil
 }
@@ -77,7 +87,7 @@ func (b *GrpcJitProvisioningInterceptorBuilder) Build() (result *GrpcJitProvisio
 // UnaryServer is the unary server interceptor function.
 func (i *GrpcJitProvisioningInterceptor) UnaryServer(ctx context.Context, req any,
 	info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	err := i.provisionIfNeeded(ctx)
+	err := i.provisionIfNeeded(ctx, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}
@@ -86,23 +96,27 @@ func (i *GrpcJitProvisioningInterceptor) UnaryServer(ctx context.Context, req an
 
 // StreamServer is the stream server interceptor function.
 //
-// JIT provisioning is intentionally skipped for streaming RPCs. The database
-// transaction interceptor (TxInterceptor) only covers unary calls, so streaming
-// contexts never carry a transaction. Calling provisionIfNeeded here would
-// always fail with "failed to get transaction from context". Users that reach
-// a streaming endpoint are already authenticated and authorised; provisioning
-// happens on their first unary call instead.
+// RoleBinding mode may provision a user in a short transaction before a stream
+// starts. Legacy mode continues to provision users on unary calls.
 func (i *GrpcJitProvisioningInterceptor) StreamServer(srv any, stream grpc.ServerStream,
 	info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if i.roleBindingEvaluator != nil {
+		if err := i.provisionIfNeeded(stream.Context(), info.FullMethod); err != nil {
+			return err
+		}
+	}
 	return handler(srv, stream)
 }
 
 // provisionIfNeeded checks if user provisioning is needed and performs it.
 // Returns nil if provisioning is not needed or succeeds, error if provisioning fails.
-func (i *GrpcJitProvisioningInterceptor) provisionIfNeeded(ctx context.Context) error {
+func (i *GrpcJitProvisioningInterceptor) provisionIfNeeded(ctx context.Context, method string) error {
 	// Skip if no provisioner configured
 	if i.provisioner == nil {
 		return nil
+	}
+	if i.roleBindingEvaluator != nil {
+		return i.provisionHuman(ctx, method)
 	}
 
 	// Get subject from context (set by authz interceptor)
@@ -166,5 +180,38 @@ func (i *GrpcJitProvisioningInterceptor) provisionIfNeeded(ctx context.Context) 
 		return fmt.Errorf("user provisioning failed: %w", err)
 	}
 
+	return nil
+}
+
+func (i *GrpcJitProvisioningInterceptor) provisionHuman(ctx context.Context, method string) error {
+	token := TokenFromContext(ctx)
+	if token == nil || isAuthorizationInfrastructure(method) {
+		return nil
+	}
+	identity, err := ExtractAuthContext(token)
+	if err != nil {
+		return status.Error(codes.Internal, "failed to process authentication")
+	}
+	if i.roleBindingEvaluator.usesLegacyAuthorization(identity) || !i.roleBindingEvaluator.isHuman(identity) {
+		return nil
+	}
+	tenants := ordinaryOrganizations(identity)
+	names := tenants.Inclusions()
+	if len(names) != 1 {
+		return nil
+	}
+	tenant := names[0]
+	if identity.Username == tenant+"-osac-break-glass" {
+		return nil
+	}
+	claims, _ := token.Claims.(jwt.MapClaims)
+	_, err = database.WithNewTx(ctx, func(txCtx context.Context) (struct{}, error) {
+		txCtx = ContextWithSubject(txCtx, &Subject{User: identity.Username, Tenant: tenant, Tenants: tenants})
+		return struct{}{}, i.provisioner.Provision(txCtx, identity.Username, tenant, claims)
+	})
+	if err != nil {
+		i.logger.ErrorContext(ctx, "Failed to provision authenticated user", slog.Any("error", err))
+		return status.Error(codes.Internal, "user provisioning failed")
+	}
 	return nil
 }

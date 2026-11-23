@@ -212,6 +212,20 @@ func (r *request[O]) translateArchiveError(ctx context.Context, tenant string, e
 	}
 }
 
+func (r *request[O]) addMutationVisibilityFilter(ctx context.Context) (bool, error) {
+	visible, err := r.addVisibilityFilter(ctx)
+	if err != nil || !visible {
+		return visible, err
+	}
+	if subject := auth.RoleBindingSubject(ctx); subject != nil && !subject.Tenants.Contains(auth.SharedTenant) {
+		if r.sql.filter.Len() > 0 {
+			r.sql.filter.WriteString(" and ")
+		}
+		r.sql.filter.WriteString(" tenant <> 'shared'")
+	}
+	return true, nil
+}
+
 // addVisibilityFilter adds a where clause to restrict results to only those objects that belong to tenants and projects
 // that the current user has permission to see.
 //

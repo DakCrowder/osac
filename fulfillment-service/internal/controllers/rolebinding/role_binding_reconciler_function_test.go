@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
 	"github.com/osac-project/osac/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/osac/fulfillment-service/internal/idp"
 	"github.com/osac-project/osac/fulfillment-service/internal/masks"
@@ -40,6 +41,15 @@ type mockRoleBindingsClient struct {
 	updateCalled bool
 	updateReq    *privatev1.RoleBindingsUpdateRequest
 	updateErr    error
+	listResponse *privatev1.RoleBindingsListResponse
+}
+
+func (m *mockRoleBindingsClient) List(
+	_ context.Context,
+	_ *privatev1.RoleBindingsListRequest,
+	_ ...grpc.CallOption,
+) (*privatev1.RoleBindingsListResponse, error) {
+	return m.listResponse, nil
 }
 
 func (m *mockRoleBindingsClient) Update(
@@ -146,6 +156,48 @@ var _ = Describe("RoleBinding Reconciler", func() {
 		ctx = context.Background()
 		ctrl = gomock.NewController(GinkgoT())
 		DeferCleanup(ctrl.Finish)
+	})
+
+	Describe("RoleBinding authorization projection", func() {
+		It("marks a database-only role ready without calling Keycloak", func() {
+			client := &mockRoleBindingsClient{}
+			f := &function{
+				logger: logger, roleBindingsClient: client, maskCalculator: masks.NewCalculator().Build(),
+				idpClient: idp.NewMockClientInterface(ctrl), roleBindingsEnabled: true,
+			}
+			binding := privatev1.RoleBinding_builder{
+				Metadata: privatev1.Metadata_builder{Finalizers: []string{finalizers.Controller}}.Build(),
+				Spec: privatev1.RoleBindingSpec_builder{
+					Role: privatev1.RoleReference_builder{Id: "custom-role"}.Build(), Users: userRefs("user-1"),
+				}.Build(),
+			}.Build()
+			Expect(f.Run(ctx, binding)).To(Succeed())
+			Expect(client.updateReq.GetObject().GetStatus().GetState()).To(Equal(privatev1.RoleBindingState_ROLE_BINDING_STATE_READY))
+		})
+
+		It("retains the realm role while another binding includes the same user", func() {
+			role := privatev1.RoleReference_builder{Id: authz.TenantAdminRoleID}.Build()
+			client := &mockRoleBindingsClient{
+				listResponse: privatev1.RoleBindingsListResponse_builder{Items: []*privatev1.RoleBinding{
+					privatev1.RoleBinding_builder{
+						Id: "remaining", Spec: privatev1.RoleBindingSpec_builder{Role: role, Users: userRefs("user-1")}.Build(),
+					}.Build(),
+				}}.Build(),
+			}
+			f := &function{
+				logger: logger, roleBindingsClient: client, maskCalculator: masks.NewCalculator().Build(),
+				usersClient: newMockUsersClient("user-1"), idpClient: idp.NewMockClientInterface(ctrl),
+				roleBindingsEnabled: true,
+			}
+			binding := privatev1.RoleBinding_builder{
+				Id: "deleted", Metadata: privatev1.Metadata_builder{
+					DeletionTimestamp: timestamppb.Now(), Finalizers: []string{finalizers.Controller},
+				}.Build(),
+				Spec: privatev1.RoleBindingSpec_builder{Role: role, Users: userRefs("user-1")}.Build(),
+			}.Build()
+			Expect(f.Run(ctx, binding)).To(Succeed())
+			Expect(hasFinalizer(binding)).To(BeFalse())
+		})
 	})
 
 	Describe("FunctionBuilder", func() {

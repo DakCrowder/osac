@@ -984,6 +984,14 @@ func (s *GenericServer[O]) updateWithCandidatePreparation(
 	// Only check the tenant restriction when the tenant is changing — existing objects
 	// in reserved tenants can be updated in place but cannot be moved into them.
 	currentTenant := s.getMetadata(currentObject).GetTenant()
+	if subject := auth.RoleBindingSubject(ctx); subject != nil {
+		if !subject.Tenants.Contains(currentTenant) {
+			return grpcstatus.Error(grpccodes.PermissionDenied, "operation is not permitted in the object's tenant")
+		}
+		if assignedTenant != currentTenant {
+			return grpcstatus.Error(grpccodes.InvalidArgument, "resource tenant cannot change")
+		}
+	}
 	if assignedTenant != currentTenant {
 		if err = s.checkAllowedTenant(assignedTenant); err != nil {
 			return err

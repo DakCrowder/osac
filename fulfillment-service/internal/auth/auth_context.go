@@ -37,7 +37,8 @@ const (
 // RoleMutationDecision requires CRUD to enforce the authorized tenant scope.
 // Grants holds the delegation ceiling for Create and Update. Delete needs only the scope.
 type RoleMutationDecision struct {
-	Grants map[string]*authz.Grants
+	Grants        map[string]*authz.Grants
+	PlatformGrant *authz.Grants
 }
 
 // ContextWithRoleMutationDecision attaches the request-local mutation decision.
@@ -88,11 +89,11 @@ func SubjectFromContext(ctx context.Context) *Subject {
 // remain unavailable to ordinary administrators and users.
 func IsControllerServiceAccount(ctx context.Context) bool {
 	subject, ok := ctx.Value(subjectContextKey).(*Subject)
-	return ok && (subject.User == "service-account-osac-controller" ||
+	return ok && subject.TenantGrants == nil && (subject.User == "service-account-osac-controller" ||
 		strings.HasSuffix(subject.User, ":service-account-osac-controller"))
 }
 
-// IsTenantAdmin reports whether the authenticated JWT grants the tenant-admin realm role.
+// IsTenantAdmin reports whether the authenticated JWT grants the legacy tenant-admin realm role.
 func IsTenantAdmin(ctx context.Context) bool {
 	token := TokenFromContext(ctx)
 	if token == nil {
@@ -112,6 +113,22 @@ func IsTenantAdmin(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// RoleBindingSubject returns the human authorization subject in the enabled mode.
+func RoleBindingSubject(ctx context.Context) *Subject {
+	if subject, ok := ctx.Value(subjectContextKey).(*Subject); ok && subject.TenantGrants != nil {
+		return subject
+	}
+	return nil
+}
+
+// IsTenantAdminIn reports whether the caller has tenant-admin authority in the given tenant.
+func IsTenantAdminIn(ctx context.Context, tenant string) bool {
+	if subject := RoleBindingSubject(ctx); subject != nil {
+		return subject.Tenants.Contains(tenant) && subject.TenantGrants[tenant].HasRole(authz.TenantAdminRoleID)
+	}
+	return IsTenantAdmin(ctx)
 }
 
 // ContextWithToken creates a new context containing the given validated JWT token.

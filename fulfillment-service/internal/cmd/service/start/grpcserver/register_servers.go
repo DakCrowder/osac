@@ -49,7 +49,9 @@ type ResourceServerDeps struct {
 	// PrivateUsersServer is already constructed by the caller — the JIT provisioning interceptor needs it
 	// before the gRPC server's interceptor chain is built, which happens before RegisterResourceServers is
 	// called. It's threaded through here so registration still happens in one place.
-	PrivateUsersServer privatev1.UsersServer
+	PrivateUsersServer  privatev1.UsersServer
+	PermissionCatalog   *catalog.Catalog
+	RoleBindingsEnabled bool
 
 	Services *services.Flags
 
@@ -695,9 +697,12 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 
 	// Create the permission catalog, derived from the proto registry of the running build:
 	deps.Logger.InfoContext(ctx, "Creating permission catalog")
-	permissionCatalog, err := catalog.Build(protoregistry.GlobalFiles)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create permission catalog: %w", err)
+	permissionCatalog := deps.PermissionCatalog
+	if permissionCatalog == nil {
+		permissionCatalog, err = catalog.Build(protoregistry.GlobalFiles)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create permission catalog: %w", err)
+		}
 	}
 
 	// Create the roles server:
@@ -747,6 +752,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetMetricsRegisterer(deps.MetricsRegisterer).
 		SetUserReferenceLookup(userReferenceLookup).
 		SetPermissionCatalog(permissionCatalog).
+		SetRoleBindingAuthorizationEnabled(deps.RoleBindingsEnabled).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create role bindings server: %w", err)
@@ -761,6 +767,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
 		SetPermissionCatalog(permissionCatalog).
+		SetRoleBindingAuthorizationEnabled(deps.RoleBindingsEnabled).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private role bindings server: %w", err)
@@ -945,6 +952,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetAttributionLogic(deps.PrivateAttributionLogic).
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
+		SetPermissionCatalog(permissionCatalog).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private tenants server: %w", err)
@@ -1039,6 +1047,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		SetAttributionLogic(deps.PublicAttributionLogic).
 		SetTenancyLogic(deps.TenancyLogic).
 		SetMetricsRegisterer(deps.MetricsRegisterer).
+		SetRoleBindingAuthorizationEnabled(deps.RoleBindingsEnabled).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public users server: %w", err)

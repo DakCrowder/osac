@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	. "github.com/onsi/ginkgo/v2"
@@ -29,6 +30,7 @@ import (
 	"github.com/osac-project/osac/fulfillment-service/internal/collections"
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
+	"github.com/osac-project/osac/fulfillment-service/internal/provisioners"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -103,6 +105,118 @@ var _ = Describe("RoleBinding grant resolution with PostgreSQL", func() {
 		store = dao.GrantStore{}
 		resolver, err = authz.NewResolver(store, permissionCatalog)
 		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("creates a canonical default RoleBinding for an API user and revokes it independently of the User", func() {
+		users, err := NewPrivateUsersServer().SetLogger(logger).SetAttributionLogic(attribution).
+			SetTenancyLogic(tenancy).SetRoleBindingAuthorizationEnabled(true).Build()
+		Expect(err).ToNot(HaveOccurred())
+		response, err := users.Create(ctx, privatev1.UsersCreateRequest_builder{
+			Object: privatev1.User_builder{
+				Metadata: privatev1.Metadata_builder{Name: "onboarded-user", Tenant: testTenant}.Build(),
+				Spec:     privatev1.UserSpec_builder{Username: "onboarded", Enabled: true}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(response.GetObject().GetId()).ToNot(BeEmpty())
+
+		provisioner, err := provisioners.NewUserProvisioner().SetLogger(logger).SetUsersServer(users).
+			SetRoleBindingAuthorizationEnabled(true).Build()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(provisioner.Provision(ctx, "onboarded", testTenant, jwt.MapClaims{"sub": "first-keycloak-id"})).To(Succeed())
+		strictResolver, err := authz.NewResolver(dao.GrantStore{RequireEnabledUsers: true}, permissionCatalog)
+		Expect(err).ToNot(HaveOccurred())
+		subject := authz.Subject{Username: "onboarded", IdentitySubject: "first-keycloak-id", Tenants: collections.NewSet(testTenant)}
+		grants, err := strictResolver.Resolve(ctx, testTenant, subject)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(grants.Methods).To(ContainElement("osac.public.v1.Projects/List"))
+		Expect(grants.Bindings).To(HaveLen(1))
+		Expect(grants.Bindings[0].DefaultBinding).To(BeTrue())
+		Expect(grants.Bindings[0].RoleName).To(Equal("tenant-user"))
+		recycled := subject
+		recycled.IdentitySubject = "recycled-keycloak-id"
+		Expect(provisioner.Provision(ctx, recycled.Username, testTenant, jwt.MapClaims{"sub": recycled.IdentitySubject})).To(Succeed())
+		recycledGrants, err := strictResolver.Resolve(ctx, testTenant, recycled)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(recycledGrants.Methods).To(BeEmpty())
+
+		_, err = bindingsServer.Delete(ctx, privatev1.RoleBindingsDeleteRequest_builder{Id: grants.Bindings[0].BindingID}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(provisioner.Provision(ctx, subject.Username, testTenant, jwt.MapClaims{"sub": subject.IdentitySubject})).To(Succeed())
+		grants, err = strictResolver.Resolve(ctx, testTenant, subject)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(grants.Methods).To(BeEmpty())
+	})
+
+	It("resolves the provider RoleBinding only for the matching enabled system identity", func() {
+		users, err := NewPrivateUsersServer().SetLogger(logger).SetAttributionLogic(attribution).
+			SetTenancyLogic(tenancy).SetRoleBindingAuthorizationEnabled(true).Build()
+		Expect(err).ToNot(HaveOccurred())
+		user, err := users.Create(ctx, privatev1.UsersCreateRequest_builder{
+			Object: privatev1.User_builder{
+				Metadata: privatev1.Metadata_builder{Name: "provider-user", Tenant: auth.SystemTenant}.Build(),
+				Spec:     privatev1.UserSpec_builder{Username: "provider", Enabled: true}.Build(),
+				Status:   privatev1.UserStatus_builder{KeycloakUserId: "provider-subject"}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		_, err = bindingsServer.Create(ctx, privatev1.RoleBindingsCreateRequest_builder{
+			Object: privatev1.RoleBinding_builder{
+				Metadata: privatev1.Metadata_builder{Name: "provider-binding", Tenant: auth.SystemTenant}.Build(),
+				Spec: privatev1.RoleBindingSpec_builder{
+					Role:  privatev1.RoleReference_builder{Id: authz.ProviderAdminRoleID, Tenant: auth.SharedTenant}.Build(),
+					Users: []*privatev1.UserReference{privatev1.UserReference_builder{Id: user.GetObject().GetId()}.Build()},
+				}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).ToNot(HaveOccurred())
+
+		strictResolver, err := authz.NewResolver(dao.GrantStore{RequireEnabledUsers: true}, permissionCatalog)
+		Expect(err).ToNot(HaveOccurred())
+		subject := authz.Subject{Username: "provider", IdentitySubject: "provider-subject", Tenants: auth.SystemTenants}
+		grants, err := strictResolver.Resolve(ctx, auth.SystemTenant, subject)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(grants.Methods).To(ContainElement(privatev1.Tenants_List_FullMethodName[1:]))
+		subject.IdentitySubject = "different-subject"
+		grants, err = strictResolver.Resolve(ctx, auth.SystemTenant, subject)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(grants.Methods).To(BeEmpty())
+	})
+
+	It("rolls back the User when its configured default Role cannot be bound", func() {
+		users, err := NewPrivateUsersServer().SetLogger(logger).SetAttributionLogic(attribution).
+			SetTenancyLogic(tenancy).SetRoleBindingAuthorizationEnabled(true).Build()
+		Expect(err).ToNot(HaveOccurred())
+		tx, err := database.TxFromContext(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		err = tx.Savepoint(ctx, func(saveCtx context.Context) error {
+			saveTx, err := database.TxFromContext(saveCtx)
+			if err != nil {
+				return err
+			}
+			_, err = saveTx.Exec(saveCtx, `
+				update tenants set data = jsonb_set(data, '{spec}',
+					coalesce(nullif(data->'spec', 'null'::jsonb), '{}'::jsonb)
+					|| '{"default_role":{"id":"missing-role"}}'::jsonb)
+				where id = $1
+			`, testTenant)
+			if err != nil {
+				return err
+			}
+			_, err = users.Create(saveCtx, privatev1.UsersCreateRequest_builder{
+				Object: privatev1.User_builder{
+					Metadata: privatev1.Metadata_builder{Name: "failed-onboarding", Tenant: testTenant}.Build(),
+					Spec:     privatev1.UserSpec_builder{Username: "failed-onboarding", Enabled: true}.Build(),
+				}.Build(),
+			}.Build())
+			return err
+		})
+		Expect(status.Code(err)).To(Equal(codes.FailedPrecondition))
+		response, err := users.List(ctx, privatev1.UsersListRequest_builder{
+			Filter: new("this.spec.username == 'failed-onboarding'"),
+		}.Build())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(response.GetItems()).To(BeEmpty())
 	})
 
 	// roleSeed describes a Role row persisted directly through the DAO. Unset fields

@@ -37,6 +37,7 @@ func ExtractAuthContext(token *jwt.Token) (*AuthContext, error) {
 	_, kube := claims["kubernetes.io"]
 
 	authContext := &AuthContext{}
+	authContext.Issuer, _ = claims["iss"].(string)
 	authContext.extractManagedServiceAccountClaims(claims)
 
 	if kube {
@@ -45,6 +46,8 @@ func ExtractAuthContext(token *jwt.Token) (*AuthContext, error) {
 		authContext.Groups = claimAsAnySlice(claims, "groups")
 	} else {
 		authContext.AuthMethod = "jwt"
+		authContext.IdentitySubject, _ = claims["sub"].(string)
+		authContext.ClientID, _ = claims["azp"].(string)
 
 		username, _ := claims["preferred_username"].(string)
 		if username == "" {

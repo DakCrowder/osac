@@ -1009,12 +1009,15 @@ ifeq ($(HELM_MAJOR),4)
 	helm plugin install scripts/dev-full/helm-post-renderer
 endif
 	# Helm install: operators + AWX + UI Gateway route + seeding
+	@set -euo pipefail; \
+	role_binding_authz=$$(helm get values osac -n $(NS) -o json | python3 -c 'import json, sys; print(str((json.load(sys.stdin) or {}).get("service", {}).get("auth", {}).get("roleBindingAuthorizationEnabled", False)).lower())'); \
 	helm upgrade --install osac-devstack charts/osac-devstack \
 		-f $(INSTANCE_VALUES) $${INSTANCE_VALUES_EXTRA} \
 		--namespace $(NS) --create-namespace \
 		--set osacNamespace=$(NS) \
 		--set kindClusterName=$(KIND_CLUSTER_NAME) \
 		--set ui.enabled=true \
+		--set service.auth.roleBindingAuthorizationEnabled="$$role_binding_authz" \
 		$(DEVSTACK_HELM_ARGS) \
 		--post-renderer $(DEV_FULL_HELM_POST_RENDERER) \
 		$(DEVSTACK_HELM_APPLY_ARGS) \

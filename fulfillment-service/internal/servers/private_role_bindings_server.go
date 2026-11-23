@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
 	"github.com/osac-project/osac/fulfillment-service/internal/authz/catalog"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/osac/fulfillment-service/internal/serviceaccounts"
@@ -35,12 +36,13 @@ import (
 
 // PrivateRoleBindingsServerBuilder is a builder for creating instances of PrivateRoleBindingsServer.
 type PrivateRoleBindingsServerBuilder struct {
-	logger            *slog.Logger
-	attributionLogic  auth.AttributionLogic
-	tenancyLogic      auth.TenancyLogic
-	metricsRegisterer prometheus.Registerer
-	filterDesc        protoreflect.MessageDescriptor
-	permissionCatalog *catalog.Catalog
+	logger              *slog.Logger
+	attributionLogic    auth.AttributionLogic
+	tenancyLogic        auth.TenancyLogic
+	metricsRegisterer   prometheus.Registerer
+	filterDesc          protoreflect.MessageDescriptor
+	permissionCatalog   *catalog.Catalog
+	roleBindingsEnabled bool
 }
 
 var _ privatev1.RoleBindingsServer = (*PrivateRoleBindingsServer)(nil)
@@ -49,11 +51,12 @@ var _ privatev1.RoleBindingsServer = (*PrivateRoleBindingsServer)(nil)
 type PrivateRoleBindingsServer struct {
 	privatev1.UnimplementedRoleBindingsServer
 
-	logger            *slog.Logger
-	generic           *GenericServer[*privatev1.RoleBinding]
-	roles             *dao.GenericDAO[*privatev1.Role]
-	users             *dao.GenericDAO[*privatev1.User]
-	permissionCatalog *catalog.Catalog
+	logger              *slog.Logger
+	generic             *GenericServer[*privatev1.RoleBinding]
+	roles               *dao.GenericDAO[*privatev1.Role]
+	users               *dao.GenericDAO[*privatev1.User]
+	permissionCatalog   *catalog.Catalog
+	roleBindingsEnabled bool
 }
 
 // NewPrivateRoleBindingsServer creates a new builder for the private role bindings server.
@@ -99,6 +102,11 @@ func (b *PrivateRoleBindingsServerBuilder) SetPermissionCatalog(value *catalog.C
 	return b
 }
 
+func (b *PrivateRoleBindingsServerBuilder) SetRoleBindingAuthorizationEnabled(value bool) *PrivateRoleBindingsServerBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 // Build creates the private role bindings server from the builder configuration.
 func (b *PrivateRoleBindingsServerBuilder) Build() (result *PrivateRoleBindingsServer, err error) {
 	if b.logger == nil {
@@ -138,11 +146,12 @@ func (b *PrivateRoleBindingsServerBuilder) Build() (result *PrivateRoleBindingsS
 		return
 	}
 	result = &PrivateRoleBindingsServer{
-		logger:            b.logger,
-		generic:           generic,
-		roles:             roles,
-		users:             users,
-		permissionCatalog: b.permissionCatalog,
+		logger:              b.logger,
+		generic:             generic,
+		roles:               roles,
+		users:               users,
+		permissionCatalog:   b.permissionCatalog,
+		roleBindingsEnabled: b.roleBindingsEnabled,
 	}
 	return
 }
@@ -194,6 +203,13 @@ func (s *PrivateRoleBindingsServer) Signal(ctx context.Context,
 
 func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, current, candidate *privatev1.RoleBinding) error {
 	tenant := candidate.GetMetadata().GetTenant()
+	if s.roleBindingsEnabled && (isPublicAPIView(ctx) || auth.RoleBindingSubject(ctx) != nil) {
+		previous := current.GetMetadata().GetAnnotations()[authz.ProjectionRoleAnnotation]
+		next := candidate.GetMetadata().GetAnnotations()[authz.ProjectionRoleAnnotation]
+		if previous != next {
+			return status.Error(codes.PermissionDenied, "Keycloak projection metadata is managed by the controller")
+		}
+	}
 	if current != nil && current.GetMetadata().GetTenant() != tenant {
 		return status.Error(codes.InvalidArgument, "RoleBinding tenant cannot change")
 	}
@@ -226,6 +242,9 @@ func (s *PrivateRoleBindingsServer) validateRoleBinding(ctx context.Context, cur
 	}
 	if err := validateRoleBindingScope(role, tenant); err != nil {
 		return err
+	}
+	if s.roleBindingsEnabled && role.GetId() == authz.ProviderAdminRoleID && tenant != auth.SystemTenant {
+		return status.Error(codes.InvalidArgument, "cloud-provider-admin may only be bound in the system tenant")
 	}
 	if grants != nil {
 		if err := validateRoleRules(s.permissionCatalog, grants, role.GetSpec().GetPermissions()); err != nil {

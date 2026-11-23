@@ -87,6 +87,9 @@ var _ = BeforeSuite(func() {
 		SetSecret(config.Secret).
 		Build()
 	Expect(err).ToNot(HaveOccurred())
+	if config.TestSuite == "role-binding-authz" {
+		tool.adminUsername = "rolebinding-admin"
+	}
 	err = tool.Setup(ctx)
 	Expect(err).ToNot(HaveOccurred())
 	DeferCleanup(func() {

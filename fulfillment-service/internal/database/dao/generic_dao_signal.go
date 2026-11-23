@@ -56,7 +56,7 @@ func (r *SignalRequest[O]) do(ctx context.Context) (response *SignalResponse, er
 	}
 
 	// Check visibility:
-	ok, err := r.addVisibilityFilter(ctx)
+	ok, err := r.addMutationVisibilityFilter(ctx)
 	if err != nil {
 		return
 	}

@@ -143,6 +143,44 @@ helm install keycloak oci://ghcr.io/osac/charts/keycloak \
 
 ## Keycloak Configuration
 
+### RoleBinding authorization for human users
+
+On a fresh install, enable the Fulfillment RoleBinding evaluator and configure
+an existing human user in the OSAC Keycloak realm as the first provider admin.
+
+```yaml
+service:
+  auth:
+    roleBindingAuthorizationEnabled: true
+    bootstrapProviderAdminUsername: provider-admin
+```
+
+The boolean defaults to `false`. Both the Fulfillment gRPC server and its
+controller receive `--enable-role-binding-authorization` from this value.
+The installer creates a User in `system` and binds the seeded
+`cloud-provider-admin` Role after resolving the Keycloak identity. For dev-full
+with bundled Keycloak fixtures, use `rolebinding-admin` as the bootstrap username.
+
+For external Keycloak, configure the realm roles `cloud-provider-admin`,
+`tenant-admin`, `tenant-idp-manager`, `tenant-reader`, and
+`cloud-provider-reader` and retain the role mapper for the web UI client.
+Give the Fulfillment controller permission to synchronize those realm roles.
+Manage assignments for these roles through OSAC RoleBindings. Existing direct
+Keycloak realm mappings and membership in the `admins` group can still affect
+web UI navigation. Remove those direct persona mappings for users managed
+through RoleBindings.
+
+Users with one ordinary organization receive the tenant's default Role on first
+API use. A tenant without an override uses the seeded shared default.
+Provisioning also assigns the tenant's break-glass account its own
+`tenant-idp-manager` RoleBinding. The provider admin can create a tenant-admin
+binding through the existing RoleBindings API.
+
+RoleBinding changes take effect for new API requests as soon as the binding
+change commits. RoleBinding status tracks Keycloak projection for the web UI.
+Sign in again after projection to refresh the web UI persona. Keep this opt-in
+to fresh installs. Existing user and grant records are outside this rollout.
+
 The Helm chart includes a pre-configured realm named `osac` with the following setup:
 
 ### Realm Configuration

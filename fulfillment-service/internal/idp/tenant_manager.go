@@ -96,6 +96,8 @@ type TenantConfig struct {
 	// BreakGlassPassword is the temporary password for the break-glass account.
 	// The caller must generate and provide this; the IDP manager will not auto-generate one.
 	BreakGlassPassword string
+	// The RoleBinding controller projects the break-glass role in the enabled mode.
+	RoleBindingAuthorizationEnabled bool
 }
 
 // BreakGlassCredentials contains the credentials for the break-glass account.
@@ -179,9 +181,11 @@ func (m *TenantManager) CreateTenant(ctx context.Context, config *TenantConfig) 
 	}
 
 	// Step 3: Assign IdP manager permissions to break-glass account
-	err = m.assignIdpManagerPermissions(ctx, credentials.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to assign IdP manager permissions: %w", err)
+	if !config.RoleBindingAuthorizationEnabled {
+		err = m.assignIdpManagerPermissions(ctx, credentials.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to assign IdP manager permissions: %w", err)
+		}
 	}
 
 	m.logger.InfoContext(ctx, "IdP tenant created successfully",

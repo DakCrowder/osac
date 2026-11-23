@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,6 +28,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz/catalog"
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/osac/fulfillment-service/internal/references"
@@ -41,22 +44,29 @@ type PrivateTenantsServerBuilder struct {
 	tenancyLogic      auth.TenancyLogic
 	metricsRegisterer prometheus.Registerer
 	filterDesc        protoreflect.MessageDescriptor
+	permissionCatalog *catalog.Catalog
 }
 
 var _ privatev1.TenantsServer = (*PrivateTenantsServer)(nil)
 
 type PrivateTenantsServer struct {
 	privatev1.UnimplementedTenantsServer
-	logger     *slog.Logger
-	generic    *GenericServer[*privatev1.Tenant]
-	dao        *dao.GenericDAO[*privatev1.Tenant]
-	secretsDao *dao.GenericDAO[*privatev1.Secret]
-	rolesDao   *dao.GenericDAO[*privatev1.Role]
-	guards     *networkingGuards
+	logger            *slog.Logger
+	generic           *GenericServer[*privatev1.Tenant]
+	dao               *dao.GenericDAO[*privatev1.Tenant]
+	secretsDao        *dao.GenericDAO[*privatev1.Secret]
+	rolesDao          *dao.GenericDAO[*privatev1.Role]
+	guards            *networkingGuards
+	permissionCatalog *catalog.Catalog
 }
 
 func NewPrivateTenantsServer() *PrivateTenantsServerBuilder {
 	return &PrivateTenantsServerBuilder{}
+}
+
+func (b *PrivateTenantsServerBuilder) SetPermissionCatalog(value *catalog.Catalog) *PrivateTenantsServerBuilder {
+	b.permissionCatalog = value
+	return b
 }
 
 func (b *PrivateTenantsServerBuilder) SetLogger(value *slog.Logger) *PrivateTenantsServerBuilder {
@@ -146,12 +156,13 @@ func (b *PrivateTenantsServerBuilder) Build() (result *PrivateTenantsServer, err
 		return
 	}
 	result = &PrivateTenantsServer{
-		guards:     guards,
-		logger:     b.logger,
-		generic:    generic,
-		dao:        tenantsDao,
-		secretsDao: secretsDao,
-		rolesDao:   rolesDao,
+		guards:            guards,
+		logger:            b.logger,
+		generic:           generic,
+		dao:               tenantsDao,
+		secretsDao:        secretsDao,
+		rolesDao:          rolesDao,
+		permissionCatalog: b.permissionCatalog,
 	}
 	return
 }
@@ -249,15 +260,48 @@ func (s *PrivateTenantsServer) Update(ctx context.Context,
 
 func (s *PrivateTenantsServer) prepareDefaultRole(ctx context.Context, current, candidate *privatev1.Tenant) error {
 	ref := candidate.GetSpec().GetDefaultRole()
-	if ref == nil || proto.Equal(current.GetSpec().GetDefaultRole(), ref) {
+	if proto.Equal(current.GetSpec().GetDefaultRole(), ref) {
 		return nil
 	}
 
-	role, err := s.resolveDefaultRole(ctx, candidate.GetMetadata().GetTenant(), ref)
+	tenant := candidate.GetMetadata().GetTenant()
+	grants, err := roleMutationGrants(ctx, tenant)
 	if err != nil {
 		return err
 	}
-	canonicalizeResourceReference(ref, role)
+	effective := ref
+	if ref == nil && grants != nil && tenant != auth.SharedTenant {
+		shared, err := s.dao.Get().SetId(auth.SharedTenant).Do(ctx)
+		if err != nil {
+			return ConvertDAOErrorToGRPC(err, "get shared tenant", auth.SharedTenant)
+		}
+		effective = shared.GetObject().GetSpec().GetDefaultRole()
+	}
+	if effective == nil {
+		return nil
+	}
+	role, err := s.resolveDefaultRole(ctx, tenant, effective)
+	if err != nil {
+		return err
+	}
+	if role.GetId() == authz.ProviderAdminRoleID {
+		return grpcstatus.Error(grpccodes.InvalidArgument, "cloud-provider-admin cannot be an onboarding role")
+	}
+	if grants != nil {
+		decision, _ := auth.RoleMutationDecisionFromContext(ctx)
+		bindingWrite := slices.Contains(grants.Methods, "osac.public.v1.RoleBindings/Create") ||
+			slices.Contains(grants.Methods, "osac.private.v1.RoleBindings/Create")
+		if !bindingWrite || (tenant == auth.SharedTenant && decision.PlatformGrant == nil) ||
+			(role.GetId() == authz.TenantAdminRoleID && decision.PlatformGrant == nil && !auth.IsTenantAdminIn(ctx, tenant)) {
+			return grpcstatus.Error(grpccodes.PermissionDenied, "tenant default Role exceeds the caller's delegation authority")
+		}
+		if err := validateRoleRules(s.permissionCatalog, grants, role.GetSpec().GetPermissions()); err != nil {
+			return err
+		}
+	}
+	if ref != nil {
+		canonicalizeResourceReference(ref, role)
+	}
 	return nil
 }
 

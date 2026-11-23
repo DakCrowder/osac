@@ -34,6 +34,9 @@ func roleMutationGrants(ctx context.Context, tenant string) (*authz.Grants, erro
 	if err := checkRoleMutationTenant(ctx, tenant); err != nil {
 		return nil, err
 	}
+	if decision.PlatformGrant != nil {
+		return decision.PlatformGrant, nil
+	}
 	grants := decision.Grants[tenant]
 	if grants == nil || grants.Tenant != tenant || len(grants.Methods) == 0 {
 		return nil, status.Error(codes.PermissionDenied, "role mutation requires delegation grants in the target tenant")

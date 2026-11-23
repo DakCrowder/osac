@@ -684,6 +684,18 @@ that has not been built locally.
 - Keycloak — `https://keycloak.osac.localhost:8443`
 - OSAC API — `https://fulfillment-api.osac.localhost:8443` (TLS Passthrough, SNI via Envoy)
 
+To test RoleBinding authorization on a fresh dev-full install, pass
+`--set service.auth.roleBindingAuthorizationEnabled=true --set service.auth.bootstrapProviderAdminUsername=rolebinding-admin`
+in `EXTRA_HELM_ARGS`. Use `rolebinding-admin` for the provider-admin web UI
+flows. See the [Fulfillment authorization guide](../fulfillment-service/docs/AUTH.md#rolebinding-authorization-for-human-users).
+
+Against that deployment, run the focused integration spec from
+`fulfillment-service/` with the usual Kind test environment variables.
+
+```sh
+IT_TEST_SUITE=role-binding-authz ginkgo run --focus='authorizes the first request' it
+```
+
 **Log in** to the UI as `tenant1_user` (or `tenant1_admin`). The password is the
 Keycloak dev-fixtures `default-user-password`:
 `kubectl -n keycloak get secret keycloak-admin-credentials -o jsonpath='{.data.default-user-password}' | base64 -d`.

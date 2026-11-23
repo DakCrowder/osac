@@ -33,6 +33,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	"github.com/osac-project/osac/fulfillment-service/internal/packages"
 	"github.com/osac-project/osac/fulfillment-service/internal/util"
@@ -263,14 +264,28 @@ func (s *EventsServer) newSubscription(
 	ctx, cancel := context.WithCancel(stream.Context())
 	logger := s.logger.With(slog.String("subscription", uuid.New()))
 
-	tenant, err := s.tenancyLogic.DetermineDefaultTenant(ctx)
-	if err != nil || tenant == "" {
+	var tenants []string
+	if subject := auth.RoleBindingSubject(ctx); subject != nil && subject.Tenants.Finite() {
+		tenants = subject.Tenants.Inclusions()
+		slices.Sort(tenants)
+	} else {
+		var tenant string
+		tenant, err = s.tenancyLogic.DetermineDefaultTenant(ctx)
+		if tenant != "" {
+			tenants = append(tenants, tenant)
+		}
+	}
+	if err != nil || len(tenants) == 0 {
 		cancel()
 		logger.ErrorContext(ctx, "Failed to determine tenant", slog.Any("error", err))
-		err = grpcstatus.Error(grpccodes.Internal, "failed to determine tenant")
-		return
+		return nil, grpcstatus.Error(grpccodes.Internal, "failed to determine tenant")
 	}
-	visibility, err := s.tenancyLogic.DetermineVisibility(ctx)
+	var visibility *auth.Visibility
+	if _, txErr := database.TxManagerFromContext(ctx); txErr == nil {
+		visibility, err = database.WithNewTx(ctx, s.tenancyLogic.DetermineVisibility)
+	} else {
+		visibility, err = s.tenancyLogic.DetermineVisibility(ctx)
+	}
 	if err != nil {
 		cancel()
 		logger.ErrorContext(ctx, "Failed to determine visibility", slog.Any("error", err))
@@ -304,8 +319,11 @@ func (s *EventsServer) newSubscription(
 		err = fmt.Errorf("failed to create Kafka consumer: %w", err)
 		return
 	}
-	topics := []string{s.kafkaTopicPrefix + tenant}
-	if tenant != auth.SharedTenant {
+	topics := make([]string, 0, len(tenants)+1)
+	for _, tenant := range tenants {
+		topics = append(topics, s.kafkaTopicPrefix+tenant)
+	}
+	if !slices.Contains(tenants, auth.SharedTenant) {
 		topics = append(topics, s.kafkaTopicPrefix+auth.SharedTenant)
 	}
 	allowedTopics := make(map[string]struct{}, len(topics))

@@ -52,6 +52,7 @@ import (
 // FunctionBuilder contains the data needed to build instances of the reconciler function.
 type FunctionBuilder struct {
 	provisioningEnabled *bool
+	roleBindingsEnabled bool
 	hubCache            controllers.HubCache
 	logger              *slog.Logger
 	connection          *grpc.ClientConn
@@ -103,6 +104,11 @@ func (b *FunctionBuilder) SetProvisioningEnabled(value bool) *FunctionBuilder {
 	return b
 }
 
+func (b *FunctionBuilder) SetRoleBindingAuthorizationEnabled(value bool) *FunctionBuilder {
+	b.roleBindingsEnabled = value
+	return b
+}
+
 // SetDefaultNetworking sets the controller-owned manager for tenant default
 // networking. This is optional for focused controller tests and reserved
 // tenants, but is configured by the production controller process.
@@ -141,6 +147,8 @@ func (b *FunctionBuilder) Build() (result *function, err error) {
 	}
 	result = &function{
 		provisioningEnabled:   provisioningEnabled,
+		roleBindingsEnabled:   b.roleBindingsEnabled,
+		roleBindingsClient:    privatev1.NewRoleBindingsClient(b.connection),
 		hubCache:              b.hubCache,
 		hubsClient:            privatev1.NewHubsClient(b.connection),
 		logger:                b.logger,
@@ -165,6 +173,8 @@ func (b *FunctionBuilder) Build() (result *function, err error) {
 // function is the implementation of the reconciler function.
 type function struct {
 	provisioningEnabled   bool
+	roleBindingsEnabled   bool
+	roleBindingsClient    privatev1.RoleBindingsClient
 	hubCache              controllers.HubCache
 	hubsClient            privatev1.HubsClient
 	logger                *slog.Logger
@@ -349,10 +359,11 @@ func (t *task) syncToIDP(ctx context.Context) error {
 			return controllers.RequeueAfter(err, defaultRetryTimeout)
 		}
 		config := &idp.TenantConfig{
-			Name:               tenantName,
-			Enabled:            new(!t.isBuiltin()),
-			Domains:            t.tenant.GetSpec().GetDomains(),
-			BreakGlassPassword: breakGlassPassword,
+			Name:                            tenantName,
+			Enabled:                         new(!t.isBuiltin()),
+			Domains:                         t.tenant.GetSpec().GetDomains(),
+			BreakGlassPassword:              breakGlassPassword,
+			RoleBindingAuthorizationEnabled: t.r.roleBindingsEnabled && !t.isBuiltin(),
 		}
 
 		credentials, err := t.r.idpManager.CreateTenant(ctx, config)
@@ -365,6 +376,12 @@ func (t *task) syncToIDP(ctx context.Context) error {
 		// Record the IdP identity after the tenant and break-glass account exist.
 		t.tenant.GetStatus().SetIdpTenantName(config.Name)
 		t.tenant.GetStatus().SetBreakGlassUserId(credentials.UserID)
+	}
+
+	if t.r.roleBindingsEnabled && !t.isBuiltin() {
+		if err := t.ensureBreakGlassBinding(ctx, t.tenant.GetStatus().GetBreakGlassUserId()); err != nil {
+			return controllers.RequeueAfter(err, 5*time.Second)
+		}
 	}
 
 	t.tenant.GetStatus().SetState(privatev1.TenantState_TENANT_STATE_SYNCED)
@@ -598,6 +615,16 @@ func (t *task) delete(ctx context.Context) error {
 				return controllers.RequeueAtInterval(wrapped, defaultRetryTimeout)
 			}
 			return wrapped
+		}
+	}
+
+	if t.r.roleBindingsEnabled {
+		pending, err := t.deleteTenantRoleBindings(ctx)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return controllers.RequeueAtInterval(errors.New("tenant RoleBindings are still pending deletion"), defaultRetryTimeout)
 		}
 	}
 

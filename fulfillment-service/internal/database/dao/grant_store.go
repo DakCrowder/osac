@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -27,13 +28,15 @@ import (
 
 // GrantStore reads authorization grants using the transaction in the context. These internal
 // queries use an explicit verified tenant, independent of API object/project visibility.
-type GrantStore struct{}
+type GrantStore struct {
+	RequireEnabledUsers bool
+}
 
 var _ authz.Store = GrantStore{}
 
 // Base query for users or service accounts
 const grantColumns = `
- select b.id, r.id, r.name, r.tenant, r.data
+ select b.id, r.id, r.name, r.tenant, r.data, b.name
  from role_bindings b
  join roles r on r.id = b.data->'spec'->'role'->>'id'
   and r.tenant in ($1, 'shared') and r.deletion_timestamp = 'epoch'
@@ -51,9 +54,13 @@ const userGrantsQuery = grantColumns + `
   where u.id <> '' and u.tenant = $1 and u.data->'spec'->>'username' = $2
    and u.deletion_timestamp = 'epoch'
    and candidate.tenant = $1 and candidate.deletion_timestamp = 'epoch'
- )
- order by b.id
 `
+
+const enabledUserGrant = `
+ and u.data #> '{spec,enabled}' = 'true'::jsonb
+ and exists (select 1 from tenants t where t.id = $1 and t.deletion_timestamp = 'epoch')
+`
+const finishUserGrant = ") order by b.id"
 
 const serviceAccountGrantsQuery = grantColumns + `
  and b.data->'spec'->'service_accounts' @> jsonb_build_array(jsonb_build_object('id', $2::text))
@@ -62,7 +69,16 @@ const serviceAccountGrantsQuery = grantColumns + `
 
 // ListUserGrants streams grants matching live User IDs in tenant with the supplied username.
 func (s GrantStore) ListUserGrants(ctx context.Context, tenant, username string) iter.Seq2[authz.BindingGrant, error] {
-	return s.listGrants(ctx, userGrantsQuery, tenant, username)
+	query := userGrantsQuery
+	if s.RequireEnabledUsers {
+		query += enabledUserGrant
+	}
+	return s.listGrants(ctx, query+finishUserGrant, tenant, username)
+}
+
+func (s GrantStore) ListVerifiedUserGrants(ctx context.Context, tenant, username, subject string) iter.Seq2[authz.BindingGrant, error] {
+	const verified = " and u.data #>> '{status,keycloak_user_id}' = $3"
+	return s.listGrants(ctx, userGrantsQuery+enabledUserGrant+verified+finishUserGrant, tenant, username, subject)
 }
 
 // ListServiceAccountGrants streams grants matching the authenticated service-account ID in tenant.
@@ -70,7 +86,7 @@ func (s GrantStore) ListServiceAccountGrants(ctx context.Context, tenant, accoun
 	return s.listGrants(ctx, serviceAccountGrantsQuery, tenant, accountID)
 }
 
-func (s GrantStore) listGrants(ctx context.Context, query, tenant, subject string) iter.Seq2[authz.BindingGrant, error] {
+func (s GrantStore) listGrants(ctx context.Context, query string, args ...any) iter.Seq2[authz.BindingGrant, error] {
 	return func(yield func(authz.BindingGrant, error) bool) {
 		tx, err := database.TxFromContext(ctx)
 		if err != nil {
@@ -78,7 +94,7 @@ func (s GrantStore) listGrants(ctx context.Context, query, tenant, subject strin
 			return
 		}
 		defer tx.ReportError(&err)
-		rows, err := tx.Query(ctx, query, tenant, subject)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			yield(authz.BindingGrant{}, err)
 			return
@@ -87,8 +103,9 @@ func (s GrantStore) listGrants(ctx context.Context, query, tenant, subject strin
 		for rows.Next() {
 			var grant authz.BindingGrant
 			var data []byte
+			var bindingName string
 			err = rows.Scan(&grant.BindingID, &grant.RoleID,
-				&grant.RoleName, &grant.RoleTenant, &data)
+				&grant.RoleName, &grant.RoleTenant, &data, &bindingName)
 			if err != nil {
 				yield(authz.BindingGrant{}, err)
 				return
@@ -101,6 +118,7 @@ func (s GrantStore) listGrants(ctx context.Context, query, tenant, subject strin
 				return
 			}
 			grant.Rules = role.GetSpec().GetPermissions()
+			grant.DefaultBinding = strings.HasPrefix(bindingName, authz.DefaultBindingPrefix)
 			if !yield(grant, nil) {
 				return
 			}
