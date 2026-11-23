@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -44,6 +46,8 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/authz"
+	"github.com/osac-project/osac/fulfillment-service/internal/collections"
 	"github.com/osac-project/osac/fulfillment-service/internal/database"
 	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	hubscheme "github.com/osac-project/osac/fulfillment-service/internal/kubernetes/scheme"
@@ -55,7 +59,10 @@ import (
 	itesting "github.com/osac-project/osac/fulfillment-service/internal/testing"
 	"github.com/osac-project/osac/fulfillment-service/internal/vault"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
+	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
+
+const scopedRoleBindingHeader = "test-scoped-role-binding"
 
 func TestRegisterServers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -187,6 +194,7 @@ var _ = BeforeSuite(func() {
 	server := itesting.NewServer(grpc.ChainUnaryInterceptor(
 		panicInterceptor.UnaryServer,
 		txInterceptor.UnaryServer,
+		withTestRoleBindingGrants,
 		referenceValidator.UnaryServer,
 	))
 	DeferCleanup(server.Stop)
@@ -211,6 +219,56 @@ var _ = BeforeSuite(func() {
 	)
 	Expect(err).ToNot(HaveOccurred())
 	DeferCleanup(conn.Close)
+})
+
+func withTestRoleBindingGrants(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if len(metadata.ValueFromIncomingContext(ctx, scopedRoleBindingHeader)) != 0 {
+		ctx = auth.ContextWithSubject(ctx, &auth.Subject{Tenants: collections.NewSet(auth.SystemTenant)})
+		ctx = auth.ContextWithRoleMutationDecision(ctx, auth.RoleMutationDecision{
+			Grants: map[string]*authz.Grants{auth.SystemTenant: {
+				Tenant:  auth.SystemTenant,
+				Methods: []string{strings.TrimPrefix(publicv1.Clusters_Get_FullMethodName, "/")},
+			}},
+		})
+	}
+	return handler(ctx, req)
+}
+
+var _ = Describe("Scoped RoleBinding registration", func() {
+	It("wires the permission catalog into the public and private RoleBinding servers", func(specCtx SpecContext) {
+		role, err := privatev1.NewRolesClient(conn).Create(specCtx, privatev1.RolesCreateRequest_builder{
+			Object: privatev1.Role_builder{
+				Metadata: privatev1.Metadata_builder{Name: "grpc-delegated-reader", Tenant: auth.SharedTenant}.Build(),
+				Spec: privatev1.RoleSpec_builder{Permissions: []*privatev1.PermissionRule{
+					privatev1.PermissionRule_builder{Service: "osac.public.clusters", Methods: []string{"get"}}.Build(),
+				}}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).To(Succeed())
+
+		scopedCtx := metadata.AppendToOutgoingContext(specCtx, scopedRoleBindingHeader, "true")
+		privateBinding, err := privatev1.NewRoleBindingsClient(conn).Create(scopedCtx, privatev1.RoleBindingsCreateRequest_builder{
+			Object: privatev1.RoleBinding_builder{
+				Metadata: privatev1.Metadata_builder{Name: "grpc-private-delegated-binding"}.Build(),
+				Spec: privatev1.RoleBindingSpec_builder{
+					Role: privatev1.RoleReference_builder{Name: "grpc-delegated-reader", Tenant: auth.SharedTenant}.Build(),
+				}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).To(Succeed(), "private RoleBinding Create")
+		Expect(privateBinding.GetObject().GetSpec().GetRole().GetId()).To(Equal(role.GetObject().GetId()))
+
+		publicBinding, err := publicv1.NewRoleBindingsClient(conn).Create(scopedCtx, publicv1.RoleBindingsCreateRequest_builder{
+			Object: publicv1.RoleBinding_builder{
+				Metadata: publicv1.Metadata_builder{Name: "grpc-public-delegated-binding"}.Build(),
+				Spec: publicv1.RoleBindingSpec_builder{
+					Role: publicv1.RoleReference_builder{Name: "grpc-delegated-reader", Tenant: auth.SharedTenant}.Build(),
+				}.Build(),
+			}.Build(),
+		}.Build())
+		Expect(err).To(Succeed(), "public RoleBinding Create")
+		Expect(publicBinding.GetObject().GetSpec().GetRole().GetId()).To(Equal(role.GetObject().GetId()))
+	})
 })
 
 // filterOracleCase describes one private-only field path found on a resource that has a public List RPC.

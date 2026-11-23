@@ -44,7 +44,8 @@ type BindingGrant struct {
 
 // Grants contains expanded methods for one tenant and their provenance.
 type Grants struct {
-	Tenant   string
+	Tenant string
+	// Methods contains the sorted, unique full gRPC method names without a leading slash.
 	Methods  []string
 	Bindings []BindingGrant
 }

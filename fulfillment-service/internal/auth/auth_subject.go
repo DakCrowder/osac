@@ -25,6 +25,7 @@ type Subject struct {
 
 	// Tenants is the set of tenants visible to the subject, before tenancy logic adds shared.
 	// It may be the universal set if all tenants are visible.
+	// For named-role authorization, it contains the tenants authorized for the current RPC.
 	Tenants collections.Set[string]
 
 	// ManagedServiceAccount marks an authenticated, Fulfillment-managed client for this request.
